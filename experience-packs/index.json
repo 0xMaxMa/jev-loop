@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "packs": [
+    {
+      "id": "web/gmail",
+      "version": "1.0.0",
+      "sha256": "8749d148cc8609332f2c3cc220fc9db8a327abcb1c36320eb1003fd29586745f",
+      "logic": "browser-use",
+      "category": "web",
+      "target": {
+        "id": "https://mail.google.com"
+      },
+      "contractVersion": 1,
+      "requires": [
+        "observe",
+        "type",
+        "click"
+      ]
+    },
+    {
+      "id": "web/google-flights",
+      "version": "1.0.0",
+      "sha256": "5d5fe8a2bd725d601a57a9892a0d2a8cb88b6a15b928db9b3dabf5e457f9f524",
+      "logic": "browser-use",
+      "category": "web",
+      "target": {
+        "id": "https://www.google.com",
+        "pathPrefixes": [
+          "/travel/flights"
+        ]
+      },
+      "contractVersion": 1,
+      "requires": [
+        "observe",
+        "type",
+        "select",
+        "click"
+      ]
+    },
+    {
+      "id": "app/apple-notes",
+      "version": "1.0.0",
+      "sha256": "57e24d7bf31bd92d7b98e19ac21f252754d8eb101fc1fed57ad63d8cefe99a83",
+      "logic": "computer-use",
+      "category": "app",
+      "target": {
+        "id": "com.apple.Notes"
+      },
+      "contractVersion": 1,
+      "requires": [
+        "observe",
+        "type"
+      ]
+    },
+    {
+      "id": "os/macos",
+      "version": "1.0.0",
+      "sha256": "25c369b5dd84c238c7f968a4d214d019fc846eb691720ba0a16abbcf4f8705f4",
+      "logic": "computer-use",
+      "category": "os",
+      "target": {
+        "id": "macos",
+        "minVersion": "13.0.0"
+      },
+      "contractVersion": 1,
+      "requires": [
+        "observe",
+        "open-app"
+      ]
+    },
+    {
+      "id": "game/gridworld",
+      "version": "1.0.0",
+      "sha256": "f0e1f684f191208948f668a627e19ef23e7a942aa4b77f20d6b08a499feba73b",
+      "logic": "game-use",
+      "category": "game",
+      "target": {
+        "id": "gridworld",
+        "minVersion": "1.0.0",
+        "maxVersion": "1.9.9"
+      },
+      "contractVersion": 1,
+      "requires": [
+        "observe",
+        "game-action"
+      ]
+    }
+  ]
+}

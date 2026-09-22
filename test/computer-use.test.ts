@@ -38,3 +38,14 @@ test('independent verification is strict and partial observations cannot complet
  for(const truncated of [true,false]){const f=fixture(['DONE']);f.state.truncated=truncated;f.deps.verify=async()=>true;
  const r=await runComputerUse({goal:'Inspect'},f.deps,new AbortController().signal);assert.equal(r.status,truncated?'needs_verification':'succeeded');}
 });
+test('experience hints reach Jev and observed effects require independent completion to learn',async()=>{
+ for(const verified of [true,false]){
+  const f=fixture(['type:c1','DONE']),call=f.deps.call,evaluate=f.deps.evaluate;const outcomes:string[]=[];let state=structuredClone(f.state),hintSeen=false;
+  f.deps.call=async(name,args,signal)=>{if(name==='computer_observe')return structuredClone(state);if(name==='computer_action')state={...state,generation:'g2',controls:[{...state.controls[0],value:'milk'}]};return call(name,args,signal);};
+  f.deps.experience={select:async()=>[{when:{role:'text-area',state:'empty'},action:'type',expected:'value-changed',source:'pack',validation:'fixture',success:0,failure:0}],record:async(_c,_e,outcome)=>{outcomes.push(outcome);}};
+  f.deps.evaluate=async(...args)=>{hintSeen=Array.isArray((args[0].state as any).experience)&&(args[0].state as any).experience.length>0;return evaluate(...args);};
+  f.deps.verify=async()=>verified;
+  await runComputerUse({goal:'Create a note'},f.deps,new AbortController().signal);
+  assert(hintSeen);assert.deepEqual(outcomes,verified?['effect-only','verified-success']:['effect-only']);
+ }
+});

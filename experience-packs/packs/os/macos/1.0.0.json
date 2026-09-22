@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "os/macos",
+  "version": "1.0.0",
+  "logic": "computer-use",
+  "contractVersion": 1,
+  "category": "os",
+  "target": {
+    "id": "macos",
+    "minVersion": "13.0.0"
+  },
+  "requires": [
+    "observe",
+    "open-app"
+  ],
+  "validation": "fixture",
+  "checks": {
+    "runs": 3,
+    "passed": 3
+  },
+  "experiences": [
+    {
+      "id": "activate-app",
+      "when": {
+        "role": "application",
+        "state": "available"
+      },
+      "action": "open-app",
+      "expected": "application-changed"
+    }
+  ]
+}

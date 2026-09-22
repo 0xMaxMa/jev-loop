@@ -1,3 +1,5 @@
+import {ExperienceRun,browserExperience,controlPattern} from './experience-runtime.js';
+import type {ExperienceHooks} from './experience-schema.js';
 import { runLoop } from "@0xmaxma/jev-loop";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -15,6 +17,7 @@ export class BrowserUseInputError extends Error {
 const Element = z.object({
   ref: z.string().max(100),
   label: z.string().max(250),
+  type: z.string().max(32).optional(),
   tag: z.string(),
   role: z.string().optional(),
   value: z.string().max(2000).optional(),
@@ -89,6 +92,7 @@ export type FieldTextRequest = {
   recent_actions?: unknown[];
 };
 export type BrowserUseDependencies = {
+  experience?: ExperienceHooks;
   call: BrowserToolCall;
   evaluate: (
     request: EvaluationRequest,
@@ -315,6 +319,7 @@ export async function runBrowserUse(
   const parsedInput = Input.safeParse(raw);
   if (!parsedInput.success) throw new BrowserUseInputError();
   const input = parsedInput.data;
+  const learning=new ExperienceRun(deps.experience);
   const controller = new AbortController();
   const cancelled = () => controller.abort();
   signal.addEventListener("abort", cancelled, { once: true });
@@ -546,11 +551,14 @@ export async function runBrowserUse(
         page.elements,
         page.scroll,
       ]);
+      const experience=await learning.hints(browserExperience(page),controller.signal);
+      check();
       const request: EvaluationRequest = {
         requestId: randomUUID(),
         state: JSON.parse(
           JSON.stringify({
             goal: input.goal,
+            experience,
             supplied_field_values: input.fields.filter((f) =>
               page!.elements.some(
                 (e) =>
@@ -630,6 +638,7 @@ export async function runBrowserUse(
           .boolean()
           .parse(await bounded((s) => deps.verify!(page!, s), 15000));
         await renew();
+        if(verified)await learning.verified();
         return result(
           verified ? "succeeded" : "needs_verification",
           verified ? "VERIFIED" : "VERIFICATION_FAILED",
@@ -735,6 +744,8 @@ export async function runBrowserUse(
             args.replace = true;
           }
         }
+        const experiencePage=page;
+        const experienceTarget=page.elements.find(e=>e.ref===args.ref);
         const operationId = randomUUID();
         lastAction = { operationId, operation: op.choice, outcome: "unknown" };
         progress({
@@ -790,6 +801,14 @@ export async function runBrowserUse(
           action.observation ??
             (await observeFresh()),
         );
+        if(experienceTarget && !experienceTarget.sensitive && page.url===experiencePage.url){
+          const matches=page.elements.filter(e=>e.label===experienceTarget.label&&e.role===experienceTarget.role&&e.tag===experienceTarget.tag);
+          const after=matches.length===1?matches[0]:undefined;
+          const expected=after && name==='page_type' && after.value===args.text && after.value!==experienceTarget.value ? 'value-changed' :
+            after && name==='page_select' && after.value!==experienceTarget.value ? 'selection-changed' :
+            after && name==='page_click' && after.expanded!==experienceTarget.expanded && after.expanded!==undefined ? 'expanded-changed' : undefined;
+          if(expected)await learning.effect(browserExperience(experiencePage),{when:controlPattern(experienceTarget),action:name==='page_type'?'type':name==='page_select'?'select':'click',expected},operationId);
+        }
       }
       if (op.choice === "WAIT") steps++;
       const changed =

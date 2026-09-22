@@ -1,6 +1,6 @@
 {
   "name": "@0xmaxma/jev-loop",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Jev Loop MCP for agents with reusable decision logic and Thinking Module",
   "main": "index.cjs",
   "types": "index.d.ts",
@@ -28,6 +28,14 @@
     "./tasks": {
       "types": "./task-mcp.d.ts",
       "default": "./task-mcp.cjs"
+    },
+    "./experience": {
+      "types": "./dist/experience.d.ts",
+      "default": "./dist/experience.js"
+    },
+    "./experience-training": {
+      "types": "./dist/experience-training.d.ts",
+      "default": "./dist/experience-training.js"
     }
   },
   "files": [
@@ -36,11 +44,13 @@
     "README.md",
     "dist/",
     "logic/",
-    "THIRD_PARTY_NOTICES.md"
+    "THIRD_PARTY_NOTICES.md",
+    "experience-packs/"
   ],
   "scripts": {
     "test": "node --import tsx --test test/*.test.cjs test/*.test.ts",
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "build:packs": "npm run build && node scripts/build-experience-packs.cjs"
   },
   "engines": {
     "node": ">=22"

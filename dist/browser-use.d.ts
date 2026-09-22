@@ -1,3 +1,4 @@
+import type { ExperienceHooks } from './experience-schema.js';
 import { z } from "zod";
 export declare const BROWSER_USE_CONTRACT_VERSION: 1;
 export declare class BrowserUseInputError extends Error {
@@ -14,6 +15,7 @@ export declare const BrowserObservation: z.ZodObject<{
     elements: z.ZodArray<z.ZodObject<{
         ref: z.ZodString;
         label: z.ZodString;
+        type: z.ZodOptional<z.ZodString>;
         tag: z.ZodString;
         role: z.ZodOptional<z.ZodString>;
         value: z.ZodOptional<z.ZodString>;
@@ -31,14 +33,14 @@ export declare const BrowserObservation: z.ZodObject<{
             disabled: z.ZodBoolean;
             selected: z.ZodBoolean;
         }, "strip", z.ZodTypeAny, {
+            selected: boolean;
             ref: string;
             label: string;
-            selected: boolean;
             disabled: boolean;
         }, {
+            selected: boolean;
             ref: string;
             label: string;
-            selected: boolean;
             disabled: boolean;
         }>, "many">>;
         options_truncated: z.ZodOptional<z.ZodBoolean>;
@@ -48,18 +50,19 @@ export declare const BrowserObservation: z.ZodObject<{
         label: string;
         tag: string;
         operations: ("CLICK" | "TYPE_TEXT" | "SELECT")[];
+        type?: string | undefined;
+        expanded?: string | undefined;
+        selected?: string | undefined;
         role?: string | undefined;
         value?: string | undefined;
-        value_truncated?: boolean | undefined;
         options?: {
+            selected: boolean;
             ref: string;
             label: string;
-            selected: boolean;
             disabled: boolean;
         }[] | undefined;
+        value_truncated?: boolean | undefined;
         checked?: string | boolean | undefined;
-        selected?: string | undefined;
-        expanded?: string | undefined;
         disabled?: boolean | undefined;
         readonly?: boolean | undefined;
         sensitive?: boolean | undefined;
@@ -70,18 +73,19 @@ export declare const BrowserObservation: z.ZodObject<{
         label: string;
         tag: string;
         operations: ("CLICK" | "TYPE_TEXT" | "SELECT")[];
+        type?: string | undefined;
+        expanded?: string | undefined;
+        selected?: string | undefined;
         role?: string | undefined;
         value?: string | undefined;
-        value_truncated?: boolean | undefined;
         options?: {
+            selected: boolean;
             ref: string;
             label: string;
-            selected: boolean;
             disabled: boolean;
         }[] | undefined;
+        value_truncated?: boolean | undefined;
         checked?: string | boolean | undefined;
-        selected?: string | undefined;
-        expanded?: string | undefined;
         disabled?: boolean | undefined;
         readonly?: boolean | undefined;
         sensitive?: boolean | undefined;
@@ -115,6 +119,11 @@ export declare const BrowserObservation: z.ZodObject<{
         viewport_elements?: boolean | undefined;
     }>;
 }, "strip", z.ZodTypeAny, {
+    scroll: {
+        up: boolean;
+        down: boolean;
+        y?: number | undefined;
+    };
     protocol_version: 1;
     generation: string;
     url: string;
@@ -125,29 +134,25 @@ export declare const BrowserObservation: z.ZodObject<{
         label: string;
         tag: string;
         operations: ("CLICK" | "TYPE_TEXT" | "SELECT")[];
+        type?: string | undefined;
+        expanded?: string | undefined;
+        selected?: string | undefined;
         role?: string | undefined;
         value?: string | undefined;
-        value_truncated?: boolean | undefined;
         options?: {
+            selected: boolean;
             ref: string;
             label: string;
-            selected: boolean;
             disabled: boolean;
         }[] | undefined;
+        value_truncated?: boolean | undefined;
         checked?: string | boolean | undefined;
-        selected?: string | undefined;
-        expanded?: string | undefined;
         disabled?: boolean | undefined;
         readonly?: boolean | undefined;
         sensitive?: boolean | undefined;
         options_truncated?: boolean | undefined;
         in_viewport?: boolean | undefined;
     }[];
-    scroll: {
-        up: boolean;
-        down: boolean;
-        y?: number | undefined;
-    };
     truncated: {
         text: boolean;
         elements: boolean;
@@ -155,6 +160,11 @@ export declare const BrowserObservation: z.ZodObject<{
     };
     viewport_text?: string | undefined;
 }, {
+    scroll: {
+        up: boolean;
+        down: boolean;
+        y?: number | undefined;
+    };
     protocol_version: 1;
     generation: string;
     url: string;
@@ -165,29 +175,25 @@ export declare const BrowserObservation: z.ZodObject<{
         label: string;
         tag: string;
         operations: ("CLICK" | "TYPE_TEXT" | "SELECT")[];
+        type?: string | undefined;
+        expanded?: string | undefined;
+        selected?: string | undefined;
         role?: string | undefined;
         value?: string | undefined;
-        value_truncated?: boolean | undefined;
         options?: {
+            selected: boolean;
             ref: string;
             label: string;
-            selected: boolean;
             disabled: boolean;
         }[] | undefined;
+        value_truncated?: boolean | undefined;
         checked?: string | boolean | undefined;
-        selected?: string | undefined;
-        expanded?: string | undefined;
         disabled?: boolean | undefined;
         readonly?: boolean | undefined;
         sensitive?: boolean | undefined;
         options_truncated?: boolean | undefined;
         in_viewport?: boolean | undefined;
     }[];
-    scroll: {
-        up: boolean;
-        down: boolean;
-        y?: number | undefined;
-    };
     truncated: {
         text: boolean;
         elements: boolean;
@@ -232,6 +238,7 @@ export type FieldTextRequest = {
     recent_actions?: unknown[];
 };
 export type BrowserUseDependencies = {
+    experience?: ExperienceHooks;
     call: BrowserToolCall;
     evaluate: (request: EvaluationRequest, signal: AbortSignal) => Promise<EvaluationResponse>;
     /** Host-owned Thinking implementation; no provider credentials live in this adapter. */

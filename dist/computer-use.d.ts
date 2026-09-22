@@ -1,3 +1,4 @@
+import type { ExperienceHooks } from './experience-schema.js';
 import { z } from 'zod';
 export declare const COMPUTER_USE_CONTRACT_VERSION = 1;
 export declare const ComputerObservation: z.ZodObject<{
@@ -11,21 +12,34 @@ export declare const ComputerObservation: z.ZodObject<{
         actions: z.ZodArray<z.ZodEnum<["press", "type"]>, "many">;
         sensitive: z.ZodOptional<z.ZodBoolean>;
     }, "strip", z.ZodTypeAny, {
+        role: string;
         ref: string;
         label: string;
-        role: string;
         actions: ("type" | "press")[];
         value?: string | undefined;
         sensitive?: boolean | undefined;
     }, {
+        role: string;
         ref: string;
         label: string;
-        role: string;
         actions: ("type" | "press")[];
         value?: string | undefined;
         sensitive?: boolean | undefined;
     }>, "many">;
     truncated: z.ZodBoolean;
+    platform: z.ZodOptional<z.ZodObject<{
+        os: z.ZodString;
+        osVersion: z.ZodString;
+        appVersion: z.ZodOptional<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        os: string;
+        osVersion: string;
+        appVersion?: string | undefined;
+    }, {
+        os: string;
+        osVersion: string;
+        appVersion?: string | undefined;
+    }>>;
     apps: z.ZodArray<z.ZodObject<{
         id: z.ZodString;
         name: z.ZodString;
@@ -37,37 +51,47 @@ export declare const ComputerObservation: z.ZodObject<{
         name: string;
     }>, "many">;
 }, "strip", z.ZodTypeAny, {
-    generation: string;
-    truncated: boolean;
     application: string;
     controls: {
+        role: string;
         ref: string;
         label: string;
-        role: string;
         actions: ("type" | "press")[];
         value?: string | undefined;
         sensitive?: boolean | undefined;
     }[];
+    generation: string;
+    truncated: boolean;
     apps: {
         id: string;
         name: string;
     }[];
+    platform?: {
+        os: string;
+        osVersion: string;
+        appVersion?: string | undefined;
+    } | undefined;
 }, {
-    generation: string;
-    truncated: boolean;
     application: string;
     controls: {
+        role: string;
         ref: string;
         label: string;
-        role: string;
         actions: ("type" | "press")[];
         value?: string | undefined;
         sensitive?: boolean | undefined;
     }[];
+    generation: string;
+    truncated: boolean;
     apps: {
         id: string;
         name: string;
     }[];
+    platform?: {
+        os: string;
+        osVersion: string;
+        appVersion?: string | undefined;
+    } | undefined;
 }>;
 export type ComputerState = z.infer<typeof ComputerObservation>;
 export interface GoalRevision {
@@ -75,6 +99,7 @@ export interface GoalRevision {
     goal: string;
 }
 export interface ComputerUseDependencies {
+    experience?: ExperienceHooks;
     call(name: string, args: Record<string, unknown>, signal: AbortSignal): Promise<unknown>;
     evaluate(request: {
         state: unknown;

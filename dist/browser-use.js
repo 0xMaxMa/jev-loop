@@ -4,6 +4,7 @@ exports.BrowserObservation = exports.BrowserUseInputError = exports.BROWSER_USE_
 exports.decisionQuestions = decisionQuestions;
 exports.runBrowserUse = runBrowserUse;
 exports.mcpBrowserTransport = mcpBrowserTransport;
+const experience_runtime_js_1 = require("./experience-runtime.js");
 const jev_loop_1 = require("@0xmaxma/jev-loop");
 const node_crypto_1 = require("node:crypto");
 const zod_1 = require("zod");
@@ -20,6 +21,7 @@ exports.BrowserUseInputError = BrowserUseInputError;
 const Element = zod_1.z.object({
     ref: zod_1.z.string().max(100),
     label: zod_1.z.string().max(250),
+    type: zod_1.z.string().max(32).optional(),
     tag: zod_1.z.string(),
     role: zod_1.z.string().optional(),
     value: zod_1.z.string().max(2000).optional(),
@@ -215,6 +217,7 @@ async function runBrowserUse(raw, deps, signal) {
     if (!parsedInput.success)
         throw new BrowserUseInputError();
     const input = parsedInput.data;
+    const learning = new experience_runtime_js_1.ExperienceRun(deps.experience);
     const controller = new AbortController();
     const cancelled = () => controller.abort();
     signal.addEventListener("abort", cancelled, { once: true });
@@ -418,10 +421,13 @@ async function runBrowserUse(raw, deps, signal) {
                     page.elements,
                     page.scroll,
                 ]);
+                const experience = await learning.hints((0, experience_runtime_js_1.browserExperience)(page), controller.signal);
+                check();
                 const request = {
                     requestId: (0, node_crypto_1.randomUUID)(),
                     state: JSON.parse(JSON.stringify({
                         goal: input.goal,
+                        experience,
                         supplied_field_values: input.fields.filter((f) => page.elements.some((e) => e.label === f.label &&
                             !e.sensitive &&
                             e.in_viewport !== false &&
@@ -490,6 +496,8 @@ async function runBrowserUse(raw, deps, signal) {
                         .boolean()
                         .parse(await bounded((s) => deps.verify(page, s), 15000));
                     await renew();
+                    if (verified)
+                        await learning.verified();
                     return result(verified ? "succeeded" : "needs_verification", verified ? "VERIFIED" : "VERIFICATION_FAILED");
                 }
                 if (steps >= input.maxSteps)
@@ -583,6 +591,8 @@ async function runBrowserUse(raw, deps, signal) {
                             args.replace = true;
                         }
                     }
+                    const experiencePage = page;
+                    const experienceTarget = page.elements.find(e => e.ref === args.ref);
                     const operationId = (0, node_crypto_1.randomUUID)();
                     lastAction = { operationId, operation: op.choice, outcome: "unknown" };
                     progress({
@@ -626,6 +636,15 @@ async function runBrowserUse(raw, deps, signal) {
                     // If post-action observation failed, preserve confirmed execution and only read again.
                     page = exports.BrowserObservation.parse(action.observation ??
                         (await observeFresh()));
+                    if (experienceTarget && !experienceTarget.sensitive && page.url === experiencePage.url) {
+                        const matches = page.elements.filter(e => e.label === experienceTarget.label && e.role === experienceTarget.role && e.tag === experienceTarget.tag);
+                        const after = matches.length === 1 ? matches[0] : undefined;
+                        const expected = after && name === 'page_type' && after.value === args.text && after.value !== experienceTarget.value ? 'value-changed' :
+                            after && name === 'page_select' && after.value !== experienceTarget.value ? 'selection-changed' :
+                                after && name === 'page_click' && after.expanded !== experienceTarget.expanded && after.expanded !== undefined ? 'expanded-changed' : undefined;
+                        if (expected)
+                            await learning.effect((0, experience_runtime_js_1.browserExperience)(experiencePage), { when: (0, experience_runtime_js_1.controlPattern)(experienceTarget), action: name === 'page_type' ? 'type' : name === 'page_select' ? 'select' : 'click', expected }, operationId);
+                    }
                 }
                 if (op.choice === "WAIT")
                     steps++;
