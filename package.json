@@ -1,1 +1,43 @@
-{"name":"@0xmaxma/jev-loop","version":"0.1.0","description":"Host-owned automation loops with injected decision, thinking and tool adapters","main":"index.cjs","types":"index.d.ts","exports":{".":{"types":"./index.d.ts","default":"./index.cjs"},"./thinking":{"types":"./thinking.d.ts","default":"./thinking.cjs"}},"files":["*.cjs","*.d.ts","README.md"],"scripts":{"test":"node --test test/*.test.cjs"},"engines":{"node":">=22"},"repository":{"type":"git","url":"https://github.com/0xMaxMa/jev-loop.git"},"private":false}
+{
+  "name": "@0xmaxma/jev-loop",
+  "version": "0.1.0",
+  "description": "jev-loop-mcp for agents: reusable automation core with domain adapters",
+  "main": "index.cjs",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.cjs"
+    },
+    "./thinking": {
+      "types": "./thinking.d.ts",
+      "default": "./thinking.cjs"
+    },
+    "./mcp": {
+      "types": "./mcp.d.ts",
+      "default": "./mcp.cjs"
+    }
+  },
+  "files": [
+    "*.cjs",
+    "*.d.ts",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.cjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/0xMaxMa/jev-loop.git"
+  },
+  "private": false,
+  "bin": {
+    "jev-loop-mcp": "cli.cjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0"
+  }
+}
