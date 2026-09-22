@@ -77,3 +77,13 @@ Node 22+. Run `npm ci`, `npm run build`, and `npm test`. Browser source is in `l
 Tests cover cancellation, budgets, input validation, scoped actions, uncertain mutations, Thinking, independent stdio clients and browser decisions. Synthetic fixtures do not prove real-site success or latency. Never replay an uncertain mutation as crash recovery.
 
 Browser Logic retries `STALE_OBSERVATION` from read-only observations within the shared stale-recovery budget, including initial navigation and post-action reads. A confirmed navigation/click is never repeated to recover its observation. Persistent stale reads stop as `STALE_RETRY_BUDGET`; consent and other errors are not retried by this path.
+
+### Dense browser observations
+
+Browser Logic may act on an observed, supported control even when the observation
+omits other elements. Each mutation still validates the current generation and
+actual node; omitted elements never become invented targets. Search/filter inputs
+and scrolling can narrow the next observation. A truncated viewport (including
+older observations without viewport completeness metadata) cannot establish DONE:
+it returns a verification candidate for the supervising agent to inspect. There is
+no automatic replay of unknown mutations or unbounded retry.

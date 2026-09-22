@@ -300,7 +300,7 @@ export function decisionQuestions(page: Observation, goal = "") {
   }
   questions.operation = {
     type: "choice",
-    instructions: JSON.stringify({ goal, rules: NEXT_ACTION }),
+    instructions: JSON.stringify({ goal, rules: NEXT_ACTION, observation_incomplete: page.truncated.elements && page.truncated.viewport_elements !== false, partial_observation_rules: "Offered controls remain actionable even when other controls were omitted. Use an observed search/filter/input to narrow the page or scroll to the needed region. Missing controls are not proof the goal is complete or impossible." }),
     criteria: operations,
   };
   return { questions, targets };
@@ -533,8 +533,6 @@ export async function runBrowserTask(
       check();
       if (evaluations >= input.maxEvaluations)
         return {result:result("blocked", "EVALUATION_BUDGET")};
-      if (page.truncated.elements && page.truncated.viewport_elements !== false)
-        return {result:result("blocked", "OBSERVATION_TRUNCATED")};
       const { questions, targets } = decisionQuestions(page, input.goal);
       if (
         Object.values(questions).some(
@@ -623,6 +621,9 @@ export async function runBrowserTask(
         page = BrowserObservation.parse(
           await observeFresh(),
         );
+        // Partial observations can support individual guarded actions, not completion.
+        if (page.truncated.elements && page.truncated.viewport_elements !== false)
+          return result("needs_verification", "OBSERVATION_TRUNCATED");
         if (!deps.verify)
           return result("needs_verification", "COMPLETION_CANDIDATE");
         const verified = z

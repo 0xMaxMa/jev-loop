@@ -204,7 +204,7 @@ function decisionQuestions(page, goal = "") {
     }
     questions.operation = {
         type: "choice",
-        instructions: JSON.stringify({ goal, rules: NEXT_ACTION }),
+        instructions: JSON.stringify({ goal, rules: NEXT_ACTION, observation_incomplete: page.truncated.elements && page.truncated.viewport_elements !== false, partial_observation_rules: "Offered controls remain actionable even when other controls were omitted. Use an observed search/filter/input to narrow the page or scroll to the needed region. Missing controls are not proof the goal is complete or impossible." }),
         criteria: operations,
     };
     return { questions, targets };
@@ -409,8 +409,6 @@ async function runBrowserTask(raw, deps, signal) {
                 check();
                 if (evaluations >= input.maxEvaluations)
                     return { result: result("blocked", "EVALUATION_BUDGET") };
-                if (page.truncated.elements && page.truncated.viewport_elements !== false)
-                    return { result: result("blocked", "OBSERVATION_TRUNCATED") };
                 const { questions, targets } = decisionQuestions(page, input.goal);
                 if (Object.values(questions).some((q) => Object.keys(q.criteria).length > 255))
                     return { result: result("blocked", "ACTION_SPACE_TOO_LARGE") };
@@ -483,6 +481,9 @@ async function runBrowserTask(raw, deps, signal) {
                     return result("blocked", "MODEL_BLOCKED");
                 if (op.choice === "DONE") {
                     page = exports.BrowserObservation.parse(await observeFresh());
+                    // Partial observations can support individual guarded actions, not completion.
+                    if (page.truncated.elements && page.truncated.viewport_elements !== false)
+                        return result("needs_verification", "OBSERVATION_TRUNCATED");
                     if (!deps.verify)
                         return result("needs_verification", "COMPLETION_CANDIDATE");
                     const verified = zod_1.z

@@ -757,13 +757,13 @@ test("non-web URLs and embedded credentials cannot be used for initial navigatio
   }
 });
 
-test("offscreen truncation permits complete viewport decisions; legacy or clipped viewport blocks", async () => {
+test("partial observations allow guarded actions but cannot establish completion", async () => {
   for (const viewport of [false, true, undefined]) {
     const f = fixture(["DONE"]);
     f.page.truncated = {text:false,elements:true,...(viewport===undefined?{}:{viewport_elements:viewport})};
     f.deps.verify = async () => true;
     const result = await runBrowserTask({goal:"Inspect current viewport",scope},f.deps,new AbortController().signal);
-    assert.equal(result.evaluations,viewport===false?1:0);
+    assert.equal(result.evaluations,1);
     assert.equal(result.reason,viewport===false?"VERIFIED":"OBSERVATION_TRUNCATED");
   }
 });
@@ -826,3 +826,17 @@ test("read recovery does not retry consent failures",async()=>{
  const result=await runBrowserTask({goal:"Read",scope},f.deps,new AbortController().signal);
  assert.equal(result.reason,"CONSENT_REQUIRED");assert.equal(reads,1);
 });
+
+ test("dense and legacy pages can fill observed fields before verification without replay", async()=>{
+  for(const viewport of [true,undefined]) {
+   const f=fixture(["TYPE_TEXT","DONE"]);
+   f.page.truncated={text:false,elements:true,...(viewport===undefined?{}:{viewport_elements:viewport})};
+   f.deps.resolveFieldText=async()=>({text:"from:example.com"});
+   let verified=false;f.deps.verify=async()=>{verified=true;return true;};
+   const result=await runBrowserTask({goal:"Search mail from example.com",scope},f.deps,new AbortController().signal);
+   assert.equal(f.calls.filter(c=>c.name==="page_type").length,1);
+   assert.equal(result.status,"needs_verification");
+   assert.equal(result.reason,"OBSERVATION_TRUNCATED");
+   assert.equal(verified,false);
+  }
+ });
