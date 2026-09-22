@@ -1,5 +1,5 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-export interface DomainAdapter {
+export interface TaskLogic {
   id: string;
   inputSchema?: Record<string, unknown>;
   parse(input: Record<string, unknown>): unknown;
@@ -7,8 +7,8 @@ export interface DomainAdapter {
 }
 /** Scope each server instance to one authenticated principal/conversation. */
 export declare function createLoopServer(options: {
-  adapters: DomainAdapter[];
-  authorize(adapterId: string): boolean;
+  logics: TaskLogic[];
+  authorize(logicId: string): boolean;
   signal?: AbortSignal;
   timeoutMs?: number;
 }): Server;

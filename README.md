@@ -1,39 +1,47 @@
 # jev-loop-mcp for agents
 
-Give an agent a goal-driven automation loop through MCP. Jev Loop is a reusable execution core with domain adapters, not a replacement for the conversational agent. Agents remain responsible for user intent, permissions and decisions that require human input.
+Jev Loop owns automation decisions. Agents submit a goal through MCP; task-specific Logic observes state, chooses actions with Jev, requests Thinking when needed, and decides when to continue or hand control back. It is not a conversational orchestrator.
 
 ## Stack
 
 ```mermaid
 flowchart TD
-    A[Claude Code / Codex / Agent] -->|MCP tools/list and tools/call| S[Jev Loop MCP Server]
-    S --> C[Jev Loop Core: observe → decide → act]
-    C --> J[Jev API · Decision model]
-    C --> D[MCP Adapter]
-    D --> B[Browser MCP tools]
-    D --> P[Desktop MCP tools]
-    D --> G[Game MCP tools]
+    A[Claude Code / Codex / Agent] -->|MCP| S[Jev Loop MCP Server]
+    S --> C[Jev Loop Core]
+    C --> L[Logic: Browser / Desktop / Game]
+    L --> J[Jev API · Decision model]
     C --> T[Thinking Module]
     T --> M[Configured thinking model]
+    L --> P[MCP Client]
+    P --> B[Remote Browser MCP tools]
+    P --> D[Desktop MCP tools]
+    P --> G[Game MCP tools]
     classDef core fill:#f97316,stroke:#9a3412,stroke-width:4px,color:#111827,font-weight:bold;
     classDef supporting fill:#e2e8f0,stroke:#94a3b8,color:#0f172a;
     class C core;
-    class A,S,J,D,B,P,G,T,M supporting;
+    class A,S,L,J,T,M,P,B,D,G supporting;
 ```
 
-**MCP transports calls; adapters supply domain meaning.** A browser adapter maps observations into decision candidates, resolves action targets, checks freshness, handles leases and records mutation receipts. A desktop or game adapter implements its own equivalent semantics. Existing MCP servers do not need modifications if an adapter can wrap their tools. Arbitrary MCP tools are not automatically safe or effective automation adapters.
+- **Core:** serial iteration, cancellation, timeouts and Thinking call budgets.
+- **Logic:** task-specific decisions. Browser Logic ships here; Desktop/Game illustrate future implementations, not available features.
+- **Jev API:** evaluates action/target candidates supplied by Logic. It is not the MCP transport.
+- **Thinking Module:** shared assistance, invoked through `LoopContext.think()`. The host configures the model/provider; Logic describes the problem and validates the result.
+- **MCP Client:** sends observation/action calls to tools. Hosts can inject an authenticated connection so credentials, authorization and durable pre-mutation checkpoints remain host-owned.
+- **Remote tools:** expose structured state, stable targets, revisions, scoped actions and inspectable operation IDs. They do not own the decision loop or model credentials.
 
-- **Agent/host:** configures providers and secrets, grants scope, owns tasks and durable receipts, and resolves genuine blockers.
-- **MCP server:** exposes `jev_run`, selects only operator-installed adapters, bounds execution and propagates cancellation. One instance belongs to one authenticated principal/conversation.
-- **Core:** runs serial observe/decide/execute with budgets and cancellation, without product-specific rules.
-- **MCP Adapter:** translates domain tools, enforces scope and freshness, supplies recovery and completion evidence. It must check cancellation/authorization immediately before every side effect.
-- **Thinking Module:** handles bounded JSON subproblems such as text generation. Provider keys stay in trusted host configuration, never tool arguments.
+An extra adapter package is not required. Different MCP tool contracts may need mapping, but merely speaking MCP does not guarantee compatibility with a particular Logic. Browser Logic currently implements a defined browser tool protocol; it does not automatically understand arbitrary browser servers or websites.
 
-For Remote Browser, the `@getpod/remote-browser-adapter` package delegates iteration to Core. The extension supplies observation/action capabilities. Core and model credentials are not installed in the extension.
+## Browser Logic
 
-## Run as an MCP server
+Import `@0xmaxma/jev-loop/browser`. `runBrowserTask(input, dependencies, signal)` owns browser-specific observation normalization, Jev action-space construction, target selection, field requests, stale recovery, limits and completion handoff. `mcpBrowserTransport(invoke)` translates MCP content envelopes. There are no website-specific scripts.
 
-Install this package and a domain adapter. Configure your MCP client to launch:
+Dependencies provide authenticated MCP calls, Jev evaluation, host-configured Thinking for field values, progress, and optional independent verification. Missing text yields a field handoff; an unverified completion candidate is never reported as success. Mutations require scoped browser leases and unique operation IDs. Unknown outcomes are not replayed. Hosts persist and reconcile receipts across process restart.
+
+Remote Browser installs no separate runner/adapter package: its server/extension provide tools, while this repository owns the browser decision implementation and unit tests.
+
+## MCP hosting
+
+Install the package and configure the agent's MCP client:
 
 ```json
 {
@@ -46,33 +54,24 @@ Install this package and a domain adapter. Configure your MCP client to launch:
 }
 ```
 
-`jev-host.mjs` is **trusted operator code**, exporting an async factory returning `{adapters, authorize, timeoutMs?}`. Adapter modules/provider credentials are configured here, never loaded from model-supplied paths. Each adapter provides `id`, an `inputSchema` describing its domain arguments for agent discovery, `parse(input)` and `run(input, {signal, check})`. `parse` must validate its domain input; `run` uses Core and checks `check()` before actions. Only install code you trust. The server is stdio by default; network exposure requires host authentication and a separate server per principal/scope.
+The trusted operator module exports an async factory returning `{logics, authorize, timeoutMs?}`. A registered Logic has `id`, `inputSchema`, `parse(input)`, and `run(input, {signal, check})`. For Browser Logic, the factory wraps the exported `runBrowserTask` with its host-configured connections and provider callbacks. Never accept module paths, credentials or executable code from tool arguments. `parse` validates inputs and Logic checks scope/cancellation before actions.
 
-Agents discover `jev_run` and call it with `{adapter, input}`. It returns the adapter's JSON result. The call stays open for bounded execution (maximum ten minutes); clients must configure their request timeout accordingly and can cancel through MCP. This version does **not** advertise durable background jobs or restart/resume: hosts own that lifecycle and must inspect receipts after interruption. The MCP server never automatically replays a request. A non-cooperative cancelled adapter blocks further runs on that server until it settles.
+Agents discover `jev_run` and call `{logic, input}`. It returns a bounded JSON result, stays open for at most ten minutes, and supports MCP cancellation. This is not a standalone durable background-job server: task ownership, checkpointing and restart reconciliation belong to the host. A non-cooperative cancelled execution blocks another run on the same server until it settles.
 
-`createLoopServer` from `@0xmaxma/jev-loop/mcp` also supports an embedded MCP transport. This lets a host pass trusted inference/checkpoint callbacks to adapters without exposing a callback HTTP endpoint or serializing secrets. Embedded and stdio hosting expose the same MCP tool contract.
+`createLoopServer` from `@0xmaxma/jev-loop/mcp` supports embedded SDK transports as well as stdio. Use one instance per authenticated principal/conversation. Network exposure needs explicit host authentication; the CLI does not expose an unauthenticated HTTP listener.
 
-## Core API
+## Core and Thinking API
 
-```js
-const { runLoop } = require('@0xmaxma/jev-loop');
-const result = await runLoop({
-  signal: abortController.signal,
-  maxCycles: 60,
-  observe: async ctx => device.observe(ctx.signal),
-  decide: async (state, ctx) => chooser.choose(goal, state, ctx.signal),
-  execute: async (action, ctx) => device.execute(action, ctx.signal),
-});
-```
+`runLoop` accepts `observe`, `decide`, and `execute`; decisions return `{action}` or `{result}`, execution returns a terminal result or undefined to observe again. This is the internal execution contract used by task-specific Logic.
 
-Decisions return `{action}` or `{result}`. Execution returns a terminal result or undefined to observe again. Core bounds stage calls; adapters own freshness, scope, leases, receipts and independent completion verification. Restarting a loop alone is not durable resume. A timed-out tool may still have an external side effect if it ignores cancellation: record and reconcile that uncertainty before further execution.
+Pass `thinking(request, signal)` to Core. Logic requests assistance with `context.think(request)`; Core bounds calls with `maxThinkingCalls` (default 60) and `thinkingTimeoutMs` (default 15 seconds), and rejects late results after cancellation.
 
-`toolRegistry` validates tool identity, parses inputs, checks authorization, and requires a host checkpoint before mutating tools. It rechecks authorization after checkpointing. Adapters with stronger native guards can implement these checks directly.
+`thinkJson` from `@0xmaxma/jev-loop/thinking` implements tool-free OpenAI-chat or Anthropic-messages JSON assistance. Hosts provide endpoints/models/credentials and consent policy. Logic validates returned JSON for the task. Available usage is returned, not estimated billing. This module does not persist credentials or page contents.
 
-`thinkJson` from `@0xmaxma/jev-loop/thinking` supports OpenAI chat and Anthropic messages APIs. Hosts supply endpoint/model/credential per invocation and a bounded signal. Input, output and output tokens are bounded; callers validate returned JSON against their operation-specific schema. It returns available usage, not estimated billing. Hosts apply consent/data-sharing policy before submitting observations. The library does not log or persist credentials or page data.
+`toolRegistry` optionally provides parsed tool inputs, authorization and mandatory host checkpoints for mutations. Logic with equivalent protocol guards can use them directly.
 
-## Verification and scope
+## Development and verification
 
-Node 22+. `npm test` checks domain-independent iteration, budgets, cancellation, mutation fencing, authorization, Thinking responses and actual MCP client/server calls. Consumers pin immutable commit archives until an npm release is published. Tests with simulated domains do not establish success or latency on real websites. Browser/Desktop/Game in the diagram describe adapter roles, not a claim that all three production adapters ship in this package.
+Node 22+. Run `npm ci`, `npm run build`, and `npm test`. Browser source is in `logic/browser.ts`; compiled JS/declarations are committed for immutable archive installs without install scripts. Core/MCP tests and Browser Logic unit tests live here. Remote tool/extension integration tests live with the MCP server implementation.
 
-Adapters request assistance through `LoopContext.think(request)`. Core owns the Thinking call budget, timeout and cancellation; the host injects the implementation/provider. Adapters describe the domain problem and validate returned data, without selecting providers or invoking inference callbacks directly. `thinkingTimeoutMs` defaults to 15 seconds and `maxThinkingCalls` to 60; configure both per loop.
+Tests cover cancellation, budgets, input validation, scoped actions, uncertain mutations, Thinking, independent stdio clients and browser decisions. Synthetic fixtures do not prove real-site success or latency. Never replay an uncertain mutation as crash recovery.

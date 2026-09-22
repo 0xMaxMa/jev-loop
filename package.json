@@ -1,7 +1,7 @@
 {
   "name": "@0xmaxma/jev-loop",
   "version": "0.1.0",
-  "description": "jev-loop-mcp for agents: reusable automation core with domain adapters",
+  "description": "Jev Loop MCP for agents with reusable decision logic and Thinking Module",
   "main": "index.cjs",
   "types": "index.d.ts",
   "exports": {
@@ -16,15 +16,23 @@
     "./mcp": {
       "types": "./mcp.d.ts",
       "default": "./mcp.cjs"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "default": "./dist/browser.js"
     }
   },
   "files": [
     "*.cjs",
     "*.d.ts",
-    "README.md"
+    "README.md",
+    "dist/",
+    "logic/",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
-    "test": "node --test test/*.test.cjs"
+    "test": "node --import tsx --test test/*.test.cjs test/*.test.ts",
+    "build": "tsc -p tsconfig.json"
   },
   "engines": {
     "node": ">=22"
@@ -38,6 +46,12 @@
     "jev-loop-mcp": "cli.cjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0"
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "tsx": "^4.20.0",
+    "@types/node": "^22.0.0"
   }
 }

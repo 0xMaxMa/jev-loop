@@ -11,31 +11,31 @@ async function connect(t, options) {
   t.after(async()=>{await client.close();await server.close();});
   return client;
 }
-test('agent discovers and invokes a domain adapter over MCP',async t=>{
-  const client=await connect(t,{authorize:()=>true,adapters:[{id:'desktop',parse:x=>{assert.equal(x.goal,'open');return x;},run:async(x,c)=>{c.check();return {status:'completed',goal:x.goal};}}]});
+test('agent discovers and invokes a domain logic over MCP',async t=>{
+  const client=await connect(t,{authorize:()=>true,logics:[{id:'desktop',parse:x=>{assert.equal(x.goal,'open');return x;},run:async(x,c)=>{c.check();return {status:'completed',goal:x.goal};}}]});
   assert.equal((await client.listTools()).tools[0].name,'jev_run');
-  const result=await client.callTool({name:'jev_run',arguments:{adapter:'desktop',input:{goal:'open'}}});
+  const result=await client.callTool({name:'jev_run',arguments:{logic:'desktop',input:{goal:'open'}}});
   assert.deepEqual(JSON.parse(result.content[0].text),{status:'completed',goal:'open'});
 });
-test('denied and unknown adapters never execute',async t=>{
+test('denied and unknown logics never execute',async t=>{
   let count=0;
-  const client=await connect(t,{authorize:()=>false,adapters:[{id:'browser',parse:x=>x,run:async()=>{count++;}}]});
-  assert.equal((await client.callTool({name:'jev_run',arguments:{adapter:'browser',input:{}}})).isError,true);
-  await assert.rejects(client.callTool({name:'jev_run',arguments:{adapter:'other',input:{}}}));
+  const client=await connect(t,{authorize:()=>false,logics:[{id:'browser',parse:x=>x,run:async()=>{count++;}}]});
+  assert.equal((await client.callTool({name:'jev_run',arguments:{logic:'browser',input:{}}})).isError,true);
+  await assert.rejects(client.callTool({name:'jev_run',arguments:{logic:'other',input:{}}}));
   assert.equal(count,0);
 });
 test('timeout does not replay or admit another run while old work is uncertain',async t=>{
   let count=0,finish;
-  const client=await connect(t,{timeoutMs:30,authorize:()=>true,adapters:[{id:'game',parse:x=>x,run:()=>{count++;return new Promise(r=>{finish=r;});}}]});
-  const result=await client.callTool({name:'jev_run',arguments:{adapter:'game',input:{}}});
+  const client=await connect(t,{timeoutMs:30,authorize:()=>true,logics:[{id:'game',parse:x=>x,run:()=>{count++;return new Promise(r=>{finish=r;});}}]});
+  const result=await client.callTool({name:'jev_run',arguments:{logic:'game',input:{}}});
   assert.equal(result.isError,true);
-  await assert.rejects(client.callTool({name:'jev_run',arguments:{adapter:'game',input:{}}}));
+  await assert.rejects(client.callTool({name:'jev_run',arguments:{logic:'game',input:{}}}));
   assert.equal(count,1);finish({status:'unknown'});
 });
-test('adapter rechecks revoked authorization before action',async t=>{
+test('logic rechecks revoked authorization before action',async t=>{
   let allowed=true,actions=0;
-  const client=await connect(t,{authorize:()=>allowed,adapters:[{id:'browser',parse:x=>x,run:async(_,c)=>{allowed=false;c.check();actions++;}}]});
-  const result=await client.callTool({name:'jev_run',arguments:{adapter:'browser',input:{}}});
+  const client=await connect(t,{authorize:()=>allowed,logics:[{id:'browser',parse:x=>x,run:async(_,c)=>{allowed=false;c.check();actions++;}}]});
+  const result=await client.callTool({name:'jev_run',arguments:{logic:'browser',input:{}}});
   assert.equal(result.isError,true);assert.equal(actions,0);
 });
 test('standalone stdio CLI supports an independent MCP client',async t=>{
@@ -45,20 +45,20 @@ test('standalone stdio CLI supports an independent MCP client',async t=>{
   const {StdioClientTransport}=require('@modelcontextprotocol/sdk/client/stdio.js');
   const dir=await mkdtemp(join(tmpdir(),'jev-stdio-'));
   const config=join(dir,'host.mjs');
-  await writeFile(config,'export default () => ({authorize:()=>true,adapters:[{id:"fixture",parse:x=>x,run:async x=>({status:"completed",goal:x.goal})}]});');
+  await writeFile(config,'export default () => ({authorize:()=>true,logics:[{id:"fixture",parse:x=>x,run:async x=>({status:"completed",goal:x.goal})}]});');
   const client=new Client({name:'independent-agent',version:'1'});
   try {
     await client.connect(new StdioClientTransport({command:process.execPath,args:[require.resolve('../cli.cjs'),'--config',config],stderr:'pipe'}));
     assert.equal((await client.listTools()).tools[0].name,'jev_run');
-    const response=await client.callTool({name:'jev_run',arguments:{adapter:'fixture',input:{goal:'test stdio'}}});
+    const response=await client.callTool({name:'jev_run',arguments:{logic:'fixture',input:{goal:'test stdio'}}});
     assert.equal(JSON.parse(response.content[0].text).status,'completed');
   } finally {await client.close();await rm(dir,{recursive:true,force:true});}
 });
 
 test('parser and authorization exceptions do not expose host details',async t=>{
  for(const source of ['parse','authorize']) {
-  const client=await connect(t,{authorize:()=>{if(source==='authorize')throw Error('private-host-detail');return true;},adapters:[{id:'test',parse:()=>{throw Error('private-host-detail');},run:async()=>{throw Error('must-not-run');}}]});
-  const response=await client.callTool({name:'jev_run',arguments:{adapter:'test',input:{}}});
+  const client=await connect(t,{authorize:()=>{if(source==='authorize')throw Error('private-host-detail');return true;},logics:[{id:'test',parse:()=>{throw Error('private-host-detail');},run:async()=>{throw Error('must-not-run');}}]});
+  const response=await client.callTool({name:'jev_run',arguments:{logic:'test',input:{}}});
   assert.equal(response.isError,true);assert.equal(JSON.stringify(response).includes('private-host-detail'),false);
  }
 });
