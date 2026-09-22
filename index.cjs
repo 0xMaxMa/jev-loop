@@ -22,9 +22,19 @@ async function runLoop(options) {
   const {signal,observe,decide,execute}=options;
   const maxCycles=options.maxCycles??100,stageTimeoutMs=options.stageTimeoutMs??60000;
   if(!Number.isInteger(maxCycles)||maxCycles<1||maxCycles>10000||!Number.isInteger(stageTimeoutMs)||stageTimeoutMs<1||stageTimeoutMs>2147483647)throw new LoopError('LOOP_INVALID_BUDGET');
+  const thinkingTimeoutMs=options.thinkingTimeoutMs??15000,maxThinkingCalls=options.maxThinkingCalls??60;
+  if(!Number.isInteger(thinkingTimeoutMs)||thinkingTimeoutMs<1||thinkingTimeoutMs>2147483647||!Number.isInteger(maxThinkingCalls)||maxThinkingCalls<0||maxThinkingCalls>10000)throw new LoopError('LOOP_INVALID_BUDGET');
+  let thinkingCalls=0;
   for(let cycle=0;cycle<maxCycles;cycle++) {
     signal.throwIfAborted();
-    const invoke=(fn)=>bounded(async local=>{const result=await fn({cycle,signal:local});local.throwIfAborted();return result;},signal,stageTimeoutMs);
+    const invoke=(fn)=>bounded(async local=>{const think=async request=>{
+      local.throwIfAborted();
+      if(typeof options.thinking!=='function')throw new LoopError('LOOP_THINKING_UNAVAILABLE');
+      if(thinkingCalls>=maxThinkingCalls)throw new LoopError('LOOP_THINKING_BUDGET');
+      thinkingCalls++;
+      const output=await bounded(child=>options.thinking(request,child),local,thinkingTimeoutMs);
+      local.throwIfAborted();return output;
+    };const result=await fn({cycle,signal:local,think});local.throwIfAborted();return result;},signal,stageTimeoutMs);
     const state=await invoke(observe);
     const decision=await invoke(ctx=>decide(state,ctx));
     if(!decision||typeof decision!=='object'||('result' in decision)===('action' in decision))throw new LoopError('LOOP_INVALID_DECISION');

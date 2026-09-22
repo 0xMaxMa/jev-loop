@@ -40,3 +40,15 @@ test('thinking rejects code/prose, truncated JSON and credential-bearing URLs',a
 test('overflowing stage budgets are rejected before observation',async()=>{
  await assert.rejects(runLoop({signal:new AbortController().signal,stageTimeoutMs:2147483648,observe:async()=>{throw Error('must-not-observe');},decide:async()=>({result:true}),execute:async()=>{}}),/LOOP_INVALID_BUDGET/);
 });
+test('core routes domain thinking requests and enforces a shared budget',async()=>{
+ let calls=0;
+ const value=await runLoop({signal:new AbortController().signal,thinking:async(request)=>{calls++;return {text:request.value};},maxThinkingCalls:1,
+ observe:async()=>({}),decide:async()=>({action:'fill'}),execute:async(_,ctx)=>({result:await ctx.think({value:'hello'})})});
+ assert.deepEqual(value,{result:{text:'hello'}});assert.equal(calls,1);
+ await assert.rejects(runLoop({signal:new AbortController().signal,maxThinkingCalls:0,thinking:async()=>{throw Error('not called');},observe:async()=>({}),decide:async(_,ctx)=>({result:await ctx.think({})}),execute:async()=>{}}),/LOOP_THINKING_BUDGET/);
+});
+test('cancelled thinking cannot return a value to dispatch an action',async()=>{
+ const controller=new AbortController();let actions=0;
+ const work=runLoop({signal:controller.signal,thinking:async()=>{await new Promise(r=>setTimeout(r,30));return 'late';},observe:async()=>({}),decide:async(_,ctx)=>({action:await ctx.think({})}),execute:async()=>{actions++;}});
+ setTimeout(()=>controller.abort(),5);await assert.rejects(work);await new Promise(r=>setTimeout(r,40));assert.equal(actions,0);
+});

@@ -8,12 +8,12 @@ Give an agent a goal-driven automation loop through MCP. Jev Loop is a reusable 
 flowchart TD
     A[Claude Code / Codex / Agent] -->|MCP tools/list and tools/call| S[Jev Loop MCP Server]
     S --> C[Jev Loop Core: observe → decide → act]
-    C --> J[Jev decision provider]
-    C --> D[Domain adapter]
+    C --> J[Jev API · Decision model]
+    C --> D[MCP Adapter]
     D --> B[Browser MCP tools]
     D --> P[Desktop MCP tools]
     D --> G[Game MCP tools]
-    D --> T[Text / Thinking helper]
+    C --> T[Thinking Module]
     T --> M[Configured thinking model]
     classDef core fill:#f97316,stroke:#9a3412,stroke-width:4px,color:#111827,font-weight:bold;
     classDef supporting fill:#e2e8f0,stroke:#94a3b8,color:#0f172a;
@@ -26,8 +26,8 @@ flowchart TD
 - **Agent/host:** configures providers and secrets, grants scope, owns tasks and durable receipts, and resolves genuine blockers.
 - **MCP server:** exposes `jev_run`, selects only operator-installed adapters, bounds execution and propagates cancellation. One instance belongs to one authenticated principal/conversation.
 - **Core:** runs serial observe/decide/execute with budgets and cancellation, without product-specific rules.
-- **Domain adapter:** translates domain tools, enforces scope and freshness, supplies recovery and completion evidence. It must check cancellation/authorization immediately before every side effect.
-- **Thinking module:** handles bounded JSON subproblems such as text generation. Provider keys stay in trusted host configuration, never tool arguments.
+- **MCP Adapter:** translates domain tools, enforces scope and freshness, supplies recovery and completion evidence. It must check cancellation/authorization immediately before every side effect.
+- **Thinking Module:** handles bounded JSON subproblems such as text generation. Provider keys stay in trusted host configuration, never tool arguments.
 
 For Remote Browser, the `@getpod/remote-browser-adapter` package delegates iteration to Core. The extension supplies observation/action capabilities. Core and model credentials are not installed in the extension.
 
@@ -74,3 +74,5 @@ Decisions return `{action}` or `{result}`. Execution returns a terminal result o
 ## Verification and scope
 
 Node 22+. `npm test` checks domain-independent iteration, budgets, cancellation, mutation fencing, authorization, Thinking responses and actual MCP client/server calls. Consumers pin immutable commit archives until an npm release is published. Tests with simulated domains do not establish success or latency on real websites. Browser/Desktop/Game in the diagram describe adapter roles, not a claim that all three production adapters ship in this package.
+
+Adapters request assistance through `LoopContext.think(request)`. Core owns the Thinking call budget, timeout and cancellation; the host injects the implementation/provider. Adapters describe the domain problem and validate returned data, without selecting providers or invoking inference callbacks directly. `thinkingTimeoutMs` defaults to 15 seconds and `maxThinkingCalls` to 60; configure both per loop.
