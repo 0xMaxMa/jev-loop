@@ -436,6 +436,26 @@ export async function runBrowserTask(
       throw new AdapterError("OUTCOME_UNKNOWN");
     return (mutation ? r.result : r) as Record<string, unknown>;
   }
+  // A document can change while a read is executing (navigation/SPA repaint).
+  // Retry only this read; never repeat the preceding confirmed mutation.
+  async function observeFresh(): Promise<Record<string, unknown>> {
+    for (;;) {
+      check();
+      try { return await call("page_observe", {detail:"full"}); }
+      catch (error) {
+        check();
+        if (errorCode(error) !== "STALE_OBSERVATION") throw error;
+        if (staleRetries >= input.maxStaleRetries) throw Error("STALE_RETRY_BUDGET");
+        staleRetries++;
+        await bounded(s => new Promise<void>((resolve,reject) => {
+          const abort=()=>{clearTimeout(delay);s.removeEventListener("abort",abort);reject(Error("TASK_CANCELLED"));};
+          const delay=setTimeout(()=>{s.removeEventListener("abort",abort);resolve();},100);
+          s.addEventListener("abort",abort,{once:true});
+          if(s.aborted)abort();
+        }),1000);
+      }
+    }
+  }
   const renew = () =>
     call("browser_task_renew", { operation_id: randomUUID() }, true);
   try {
@@ -485,7 +505,7 @@ export async function runBrowserTask(
       steps++;
       progress({ phase: "acted", operationId });
     }
-    const initial = await call("page_observe", { detail: "full" });
+    const initial = await observeFresh();
     if (initial.native_new_tab === true)
       return result("blocked", "START_URL_REQUIRED");
     page = BrowserObservation.parse(initial);
@@ -500,7 +520,7 @@ export async function runBrowserTask(
         s.addEventListener("abort",abort,{once:true});
       }),1000);
       await renew();
-      page = BrowserObservation.parse(await call("page_observe",{detail:"full"}));
+      page = BrowserObservation.parse(await observeFresh());
     }
     if(emptyViewport()) return result("blocked","PAGE_CONTENT_UNAVAILABLE");
     return await runLoop<Observation, {op:ReturnType<typeof choice>;validated:Record<string,ReturnType<typeof choice>>;targets:ReturnType<typeof decisionQuestions>["targets"];before:string;request:EvaluationRequest},BrowserTaskResult>({
@@ -601,7 +621,7 @@ export async function runBrowserTask(
       if (op.choice === "BLOCKED") return result("blocked", "MODEL_BLOCKED");
       if (op.choice === "DONE") {
         page = BrowserObservation.parse(
-          await call("page_observe", { detail: "full" }),
+          await observeFresh(),
         );
         if (!deps.verify)
           return result("needs_verification", "COMPLETION_CANDIDATE");
@@ -632,7 +652,7 @@ export async function runBrowserTask(
           1000,
         );
         page = BrowserObservation.parse(
-          await call("page_observe", { detail: "full" }),
+          await observeFresh(),
         );
       } else {
         let name: string, args: Record<string, unknown>;
@@ -741,7 +761,7 @@ export async function runBrowserTask(
               return result("blocked", "STALE_RETRY_BUDGET");
             staleRetries++;
             page = BrowserObservation.parse(
-              await call("page_observe", { detail: "full" }),
+              await observeFresh(),
             );
             return undefined; // Discard the old decision; never replay the rejected action.
           }
@@ -767,7 +787,7 @@ export async function runBrowserTask(
         // If post-action observation failed, preserve confirmed execution and only read again.
         page = BrowserObservation.parse(
           action.observation ??
-            (await call("page_observe", { detail: "full" })),
+            (await observeFresh()),
         );
       }
       if (op.choice === "WAIT") steps++;
@@ -788,7 +808,7 @@ export async function runBrowserTask(
     return result(
       signal.aborted
         ? "cancelled"
-        : code === "TASK_DEADLINE"
+        : (code === "TASK_DEADLINE" || code === "STALE_RETRY_BUDGET")
           ? "blocked"
           : "failed",
       code,

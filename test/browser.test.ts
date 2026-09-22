@@ -799,3 +799,30 @@ test("cancel during initial navigation preserves uncertainty and cancelled statu
  const r=await runBrowserTask({goal:"Open page",scope,startUrl:"https://fixture.test"},f.deps,controller.signal);
  assert.equal(r.status,"cancelled");assert.equal(r.reason,"OUTCOME_UNKNOWN");assert.equal(r.lastAction?.outcome,"unknown");
 });
+test("initial stale observation retries the read without repeating navigation",async()=>{
+ const f=fixture(["DONE"]),call=f.deps.call;let reads=0,nav=0;
+ f.deps.call=async(...args)=>{if(args[0]==="tab_navigate")nav++;if(args[0]==="page_observe"&&++reads===1)return {error:"STALE_OBSERVATION"};return call(...args);};
+ f.deps.verify=async()=>true;
+ const result=await runBrowserTask({goal:"Open results",scope,startUrl:"https://fixture.test"},f.deps,new AbortController().signal);
+ assert.equal(result.status,"succeeded");assert.equal(nav,1);assert.equal(result.staleRetries,1);assert.equal(result.evaluations,1);
+});
+test("post-action stale read does not repeat a confirmed click",async()=>{
+ const f=fixture(["CLICK","DONE"]),call=f.deps.call;let clicked=0,stale=false;
+ f.deps.call=async(...args)=>{if(args[0]==="page_click"){clicked++;stale=true;await call(...args);return {state:"completed",result:{ok:true}};}if(args[0]==="page_observe"&&stale){stale=false;return {error:"STALE_OBSERVATION"};}return call(...args);};
+ f.deps.verify=async()=>true;
+ const result=await runBrowserTask({goal:"Click once",scope},f.deps,new AbortController().signal);
+ assert.equal(result.status,"succeeded");assert.equal(clicked,1);assert.equal(result.staleRetries,1);
+});
+test("persistent stale reads stop within shared budget without calling model",async()=>{
+ const f=fixture(["DONE"]);let reads=0,model=0;const call=f.deps.call;
+ f.deps.call=async(...args)=>{if(args[0]==="page_observe"){reads++;return {error:"STALE_OBSERVATION"};}return call(...args);};
+ f.deps.evaluate=async()=>{model++;throw Error("must-not-call");};
+ const result=await runBrowserTask({goal:"Read",scope,maxStaleRetries:2},f.deps,new AbortController().signal);
+ assert.equal(result.status,"blocked");assert.equal(result.reason,"STALE_RETRY_BUDGET");assert.equal(reads,3);assert.equal(model,0);
+});
+test("read recovery does not retry consent failures",async()=>{
+ const f=fixture(["DONE"]);let reads=0;const call=f.deps.call;
+ f.deps.call=async(...args)=>{if(args[0]==="page_observe"){reads++;return {error:"CONSENT_REQUIRED"};}return call(...args);};
+ const result=await runBrowserTask({goal:"Read",scope},f.deps,new AbortController().signal);
+ assert.equal(result.reason,"CONSENT_REQUIRED");assert.equal(reads,1);
+});

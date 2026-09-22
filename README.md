@@ -75,3 +75,5 @@ Pass `thinking(request, signal)` to Core. Logic requests assistance with `contex
 Node 22+. Run `npm ci`, `npm run build`, and `npm test`. Browser source is in `logic/browser.ts`; compiled JS/declarations are committed for immutable archive installs without install scripts. Core/MCP tests and Browser Logic unit tests live here. Remote tool/extension integration tests live with the MCP server implementation.
 
 Tests cover cancellation, budgets, input validation, scoped actions, uncertain mutations, Thinking, independent stdio clients and browser decisions. Synthetic fixtures do not prove real-site success or latency. Never replay an uncertain mutation as crash recovery.
+
+Browser Logic retries `STALE_OBSERVATION` from read-only observations within the shared stale-recovery budget, including initial navigation and post-action reads. A confirmed navigation/click is never repeated to recover its observation. Persistent stale reads stop as `STALE_RETRY_BUDGET`; consent and other errors are not retried by this path.

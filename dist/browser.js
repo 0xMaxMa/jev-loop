@@ -316,6 +316,31 @@ async function runBrowserTask(raw, deps, signal) {
             throw new AdapterError("OUTCOME_UNKNOWN");
         return (mutation ? r.result : r);
     }
+    // A document can change while a read is executing (navigation/SPA repaint).
+    // Retry only this read; never repeat the preceding confirmed mutation.
+    async function observeFresh() {
+        for (;;) {
+            check();
+            try {
+                return await call("page_observe", { detail: "full" });
+            }
+            catch (error) {
+                check();
+                if (errorCode(error) !== "STALE_OBSERVATION")
+                    throw error;
+                if (staleRetries >= input.maxStaleRetries)
+                    throw Error("STALE_RETRY_BUDGET");
+                staleRetries++;
+                await bounded(s => new Promise((resolve, reject) => {
+                    const abort = () => { clearTimeout(delay); s.removeEventListener("abort", abort); reject(Error("TASK_CANCELLED")); };
+                    const delay = setTimeout(() => { s.removeEventListener("abort", abort); resolve(); }, 100);
+                    s.addEventListener("abort", abort, { once: true });
+                    if (s.aborted)
+                        abort();
+                }), 1000);
+            }
+        }
+    }
     const renew = () => call("browser_task_renew", { operation_id: (0, node_crypto_1.randomUUID)() }, true);
     try {
         const acquired = await call("browser_task_acquire", { operation_id: (0, node_crypto_1.randomUUID)() }, true);
@@ -354,7 +379,7 @@ async function runBrowserTask(raw, deps, signal) {
             steps++;
             progress({ phase: "acted", operationId });
         }
-        const initial = await call("page_observe", { detail: "full" });
+        const initial = await observeFresh();
         if (initial.native_new_tab === true)
             return result("blocked", "START_URL_REQUIRED");
         page = exports.BrowserObservation.parse(initial);
@@ -369,7 +394,7 @@ async function runBrowserTask(raw, deps, signal) {
                 s.addEventListener("abort", abort, { once: true });
             }), 1000);
             await renew();
-            page = exports.BrowserObservation.parse(await call("page_observe", { detail: "full" }));
+            page = exports.BrowserObservation.parse(await observeFresh());
         }
         if (emptyViewport())
             return result("blocked", "PAGE_CONTENT_UNAVAILABLE");
@@ -457,7 +482,7 @@ async function runBrowserTask(raw, deps, signal) {
                 if (op.choice === "BLOCKED")
                     return result("blocked", "MODEL_BLOCKED");
                 if (op.choice === "DONE") {
-                    page = exports.BrowserObservation.parse(await call("page_observe", { detail: "full" }));
+                    page = exports.BrowserObservation.parse(await observeFresh());
                     if (!deps.verify)
                         return result("needs_verification", "COMPLETION_CANDIDATE");
                     const verified = zod_1.z
@@ -480,7 +505,7 @@ async function runBrowserTask(raw, deps, signal) {
                         }, 200);
                         s.addEventListener("abort", abort, { once: true });
                     }), 1000);
-                    page = exports.BrowserObservation.parse(await call("page_observe", { detail: "full" }));
+                    page = exports.BrowserObservation.parse(await observeFresh());
                 }
                 else {
                     let name, args;
@@ -578,7 +603,7 @@ async function runBrowserTask(raw, deps, signal) {
                             if (staleRetries >= input.maxStaleRetries)
                                 return result("blocked", "STALE_RETRY_BUDGET");
                             staleRetries++;
-                            page = exports.BrowserObservation.parse(await call("page_observe", { detail: "full" }));
+                            page = exports.BrowserObservation.parse(await observeFresh());
                             return undefined; // Discard the old decision; never replay the rejected action.
                         }
                         return result(controller.signal.aborted
@@ -599,7 +624,7 @@ async function runBrowserTask(raw, deps, signal) {
                     progress({ phase: "acted", requestId: request.requestId, operationId });
                     // If post-action observation failed, preserve confirmed execution and only read again.
                     page = exports.BrowserObservation.parse(action.observation ??
-                        (await call("page_observe", { detail: "full" })));
+                        (await observeFresh()));
                 }
                 if (op.choice === "WAIT")
                     steps++;
@@ -620,7 +645,7 @@ async function runBrowserTask(raw, deps, signal) {
         const code = controller.signal.aborted ? (timedOut ? "TASK_DEADLINE" : "TASK_CANCELLED") : error instanceof zod_1.z.ZodError ? "INVALID_CONTRACT" : errorCode(error);
         return result(signal.aborted
             ? "cancelled"
-            : code === "TASK_DEADLINE"
+            : (code === "TASK_DEADLINE" || code === "STALE_RETRY_BUDGET")
                 ? "blocked"
                 : "failed", code);
     }
