@@ -1,6 +1,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 export interface DomainAdapter {
   id: string;
+  inputSchema?: Record<string, unknown>;
   parse(input: Record<string, unknown>): unknown;
   run(input: any, context: { signal: AbortSignal; check(): void }): Promise<unknown>;
 }

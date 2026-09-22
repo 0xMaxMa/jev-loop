@@ -20,7 +20,8 @@ function createLoopServer({ adapters, authorize, signal, timeoutMs = 600000 }) {
     inputSchema: { type: 'object', properties: {
       adapter: { type: 'string', enum: [...registry.keys()] },
       input: { type: 'object', description: 'Domain input validated by the installed adapter.' },
-    }, required: ['adapter', 'input'], additionalProperties: false },
+    }, required: ['adapter', 'input'], additionalProperties: false,
+      oneOf: [...registry.values()].map(a => ({properties:{adapter:{const:a.id},input:a.inputSchema ?? {type:'object'}}})) },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   }] }));
   let active = false;
