@@ -1,6 +1,6 @@
 {
   "name": "@0xmaxma/jev-loop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Jev Loop MCP for agents with reusable decision logic and Thinking Module",
   "main": "index.cjs",
   "types": "index.d.ts",
@@ -17,9 +17,17 @@
       "types": "./mcp.d.ts",
       "default": "./mcp.cjs"
     },
-    "./browser": {
-      "types": "./dist/browser.d.ts",
-      "default": "./dist/browser.js"
+    "./browser-use": {
+      "types": "./dist/browser-use.d.ts",
+      "default": "./dist/browser-use.js"
+    },
+    "./computer-use": {
+      "types": "./dist/computer-use.d.ts",
+      "default": "./dist/computer-use.js"
+    },
+    "./tasks": {
+      "types": "./task-mcp.d.ts",
+      "default": "./task-mcp.cjs"
     }
   },
   "files": [

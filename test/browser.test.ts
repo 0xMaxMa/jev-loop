@@ -3,11 +3,11 @@ import { test } from "node:test";
 import { randomUUID } from "node:crypto";
 import {
   decisionQuestions,
-  runBrowserTask,
+  runBrowserUse,
   mcpBrowserTransport,
   type Observation,
-  type AdapterDependencies,
-} from "../logic/browser.ts";
+  type BrowserUseDependencies,
+} from "../logic/browser-use.ts";
 const scope = { device_id: "device", grant_id: "grant", tab_id: "tab" };
 const snapshot = (): Observation => ({
   protocol_version: 1,
@@ -31,7 +31,7 @@ function fixture(plan: string[]) {
   const calls: { name: string; args: Record<string, unknown> }[] = [];
   const page = snapshot();
   let i = 0;
-  const deps: AdapterDependencies = {
+  const deps: BrowserUseDependencies = {
     call: async (name, args) => {
       calls.push({ name, args });
       if (name === "browser_task_acquire")
@@ -81,7 +81,7 @@ test("verified success uses one multi-question evaluation per step and releases 
     verified = true;
     return page.text === "Submitted";
   };
-  const r = await runBrowserTask(
+  const r = await runBrowserUse(
     { goal: "Submit name", scope, fields: [{ label: "Name", text: "ส้ม" }] },
     f.deps,
     new AbortController().signal,
@@ -101,7 +101,7 @@ test("verified success uses one multi-question evaluation per step and releases 
 });
 test("DONE without a verifier is an explicit verification handoff", async () => {
   const f = fixture(["DONE"]);
-  const r = await runBrowserTask(
+  const r = await runBrowserUse(
     { goal: "Done", scope },
     f.deps,
     new AbortController().signal,
@@ -118,7 +118,7 @@ test("missing and ambiguous field text never executes a type operation", async (
     ],
   ]) {
     const f = fixture(["TYPE_TEXT"]);
-    const r = await runBrowserTask(
+    const r = await runBrowserUse(
       { goal: "Enter name", scope, fields },
       f.deps,
       new AbortController().signal,
@@ -135,7 +135,7 @@ test("low target confidence blocks even with confident operation", async () => {
     (r.answers.click_target as { confidence: number }).confidence = 0.1;
     return r;
   };
-  const r = await runBrowserTask(
+  const r = await runBrowserUse(
     { goal: "Click", scope, targetConfidence: 0.8 },
     f.deps,
     new AbortController().signal,
@@ -151,7 +151,7 @@ test("malformed unused heads are rejected as an invalid contract", async () => {
     r.answers.type_text_target = { choice: "invented" };
     return r;
   };
-  const r = await runBrowserTask(
+  const r = await runBrowserUse(
     { goal: "Click", scope },
     f.deps,
     new AbortController().signal,
@@ -164,7 +164,7 @@ test("unknown mutation outcome never retries and is preserved", async () => {
   const call = f.deps.call;
   f.deps.call = async (n, a, s) =>
     n === "page_click" ? { error: "OUTCOME_UNKNOWN" } : call(n, a, s);
-  const r = await runBrowserTask(
+  const r = await runBrowserUse(
     { goal: "Click", scope },
     f.deps,
     new AbortController().signal,
@@ -183,7 +183,7 @@ test("confirmed mutation survives missing post-action observation without replay
           result: { ok: true, observation_error: "STALE_OBSERVATION" },
         }
       : call(n, a, s);
-  const r = await runBrowserTask(
+  const r = await runBrowserUse(
     { goal: "Click", scope },
     f.deps,
     new AbortController().signal,
@@ -199,7 +199,7 @@ test("cancellation during noncooperative inference releases ownership and ignore
     controller.abort();
     return new Promise(() => {});
   };
-  const r = await runBrowserTask(
+  const r = await runBrowserUse(
     { goal: "Click", scope },
     f.deps,
     controller.signal,
@@ -216,7 +216,7 @@ test("revocation after inference is rejected by the action boundary", async () =
     n === "page_click"
       ? { error: "TASK_OWNERSHIP_LOST", action_executed: false }
       : call(n, a, s);
-  const r = await runBrowserTask(
+  const r = await runBrowserUse(
     { goal: "Click", scope },
     f.deps,
     new AbortController().signal,
@@ -226,7 +226,7 @@ test("revocation after inference is rejected by the action boundary", async () =
 });
 test("no progress and budgets bound action loops", async () => {
   const f = fixture(["CLICK", "CLICK", "CLICK", "CLICK", "CLICK"]);
-  const r = await runBrowserTask(
+  const r = await runBrowserUse(
     { goal: "Click", scope },
     f.deps,
     new AbortController().signal,
@@ -234,7 +234,7 @@ test("no progress and budgets bound action loops", async () => {
   assert.equal(r.reason, "NO_PROGRESS");
   assert.equal(r.steps, 4);
   const g = fixture(["CLICK", "CLICK"]);
-  const b = await runBrowserTask(
+  const b = await runBrowserUse(
     { goal: "Click", scope, maxSteps: 1 },
     g.deps,
     new AbortController().signal,
@@ -282,7 +282,7 @@ test("MCP adapter parses tool envelopes but fails closed for image-only/errors",
 test("deadline terminates a noncooperative evaluator without an action", async () => {
   const f = fixture([]);
   f.deps.evaluate = async () => new Promise(() => {});
-  const r = await runBrowserTask(
+  const r = await runBrowserUse(
     { goal: "Wait", scope, timeoutMs: 1000 },
     f.deps,
     new AbortController().signal,
@@ -295,7 +295,7 @@ test("deadline terminates a noncooperative evaluator without an action", async (
 test("false DONE remains unverified, including after a completed action", async () => {
   const f = fixture(["CLICK", "DONE"]);
   f.deps.verify = async () => false;
-  const r = await runBrowserTask(
+  const r = await runBrowserUse(
     { goal: "Find result", scope },
     f.deps,
     new AbortController().signal,
@@ -315,8 +315,8 @@ test("verifier output must be a strict boolean and malformed replies never repla
     undefined,
   ]) {
     const f = fixture(["CLICK", "DONE"]);
-    f.deps.verify = (async () => verdict) as AdapterDependencies["verify"];
-    const r = await runBrowserTask(
+    f.deps.verify = (async () => verdict) as BrowserUseDependencies["verify"];
+    const r = await runBrowserUse(
       { goal: "Verify once", scope },
       f.deps,
       new AbortController().signal,
@@ -354,7 +354,7 @@ test("oversized decision input is rejected before paid inference without droppin
   f.deps.evaluate = async () => {
     throw Error("SHOULD_NOT_EVALUATE");
   };
-  const r = await runBrowserTask(
+  const r = await runBrowserUse(
     { goal: "Fill fields", scope },
     f.deps,
     new AbortController().signal,
@@ -370,7 +370,7 @@ test("structured gateway errors preserve safe codes without leaking provider bod
       code: "RATE_LIMITED",
     });
   };
-  const r = await runBrowserTask(
+  const r = await runBrowserUse(
     { goal: "Find", scope },
     f.deps,
     new AbortController().signal,
@@ -396,7 +396,7 @@ test("oversized Choice candidate set hands off without paid inference or silent 
   f.deps.evaluate = async () => {
     throw Error("SHOULD_NOT_EVALUATE");
   };
-  const r = await runBrowserTask(
+  const r = await runBrowserUse(
     { goal: "Select", scope },
     f.deps,
     new AbortController().signal,
@@ -433,7 +433,7 @@ test("inference receives applicable explicit field values but excludes sensitive
     assert(!JSON.stringify(request).includes("private-value"));
     return evaluate(request, signal);
   };
-  const result = await runBrowserTask(
+  const result = await runBrowserUse(
     {
       scope,
       goal: "Fill the provided details",
@@ -461,7 +461,7 @@ test("stale recovery requires explicit non-execution, uses a fresh decision and 
     }
     return call(n, a, s);
   };
-  const r = await runBrowserTask(
+  const r = await runBrowserUse(
     { goal: "Fill", scope, fields: [{ label: "Name", text: "Som" }] },
     f.deps,
     new AbortController().signal,
@@ -485,7 +485,7 @@ test("stale retries are bounded and uncertain stale mutations never retry", asyn
             ...(known ? { action_executed: false } : {}),
           }
         : call(n, a, s);
-    const r = await runBrowserTask(
+    const r = await runBrowserUse(
       { goal: "Click", scope, maxStaleRetries: 2 },
       f.deps,
       new AbortController().signal,
@@ -506,7 +506,7 @@ test("text helper fills missing values; supplied text bypasses helper", async ()
       assert.equal(req.goal, "Enter Som");
       return { text: "Som" };
     };
-    const r = await runBrowserTask(
+    const r = await runBrowserUse(
       {
         goal: "Enter Som",
         scope,
@@ -535,7 +535,7 @@ test("helper null, malformed output, budget and cancellation never type", async 
       }
       return mode === "malformed" ? { text: "x".repeat(2001) } : { text: null };
     };
-    const r = await runBrowserTask(
+    const r = await runBrowserUse(
       { goal: "Enter", scope, maxTextCalls: mode === "budget" ? 0 : 1 },
       f.deps,
       controller.signal,
@@ -561,7 +561,7 @@ test("staleness after helper re-reads context; text budget spans recovery", asyn
     n === "page_type"
       ? { error: "STALE_OBSERVATION", action_executed: false }
       : call(n, a, s);
-  const r = await runBrowserTask(
+  const r = await runBrowserUse(
     { goal: "Fill", scope, maxTextCalls: 1 },
     f.deps,
     new AbortController().signal,
@@ -581,7 +581,7 @@ test("confidence policy comparison keeps target gate and independent verificatio
       return answer;
     };
     f.deps.verify = async () => false;
-    const r = await runBrowserTask(
+    const r = await runBrowserUse(
       { goal: "Click", scope, operationConfidence },
       f.deps,
       new AbortController().signal,
@@ -596,11 +596,11 @@ test("confidence policy comparison keeps target gate and independent verificatio
 
 test("v1 contract preserves correlation and missing-field handoff", async () => {
   const f = fixture(["TYPE_TEXT"]);
-  const events: import("../logic/browser.ts").AdapterProgress[] = [];
+  const events: import("../logic/browser-use.ts").BrowserUseProgress[] = [];
   f.deps.progress = (e) => {
     events.push(e);
   };
-  const r = await runBrowserTask(
+  const r = await runBrowserUse(
     { contractVersion: 1, goal: "Enter name", scope },
     f.deps,
     new AbortController().signal,
@@ -627,7 +627,7 @@ test("confirmed action survives subsequent uncertainty and progress failures", a
   f.deps.progress = () => {
     throw Error("presentation failure");
   };
-  const r = await runBrowserTask(
+  const r = await runBrowserUse(
     { goal: "Click", scope },
     f.deps,
     new AbortController().signal,
@@ -649,7 +649,7 @@ test("unsupported contract version rejects before callbacks", async () => {
     return {};
   };
   await assert.rejects(
-    runBrowserTask(
+    runBrowserUse(
       { contractVersion: 2, goal: "Test", scope } as never,
       f.deps,
       new AbortController().signal,
@@ -669,7 +669,7 @@ test("async progress rejection or a stalled observer cannot interrupt browser wo
       return new Promise<void>(() => {});
     };
     f.deps.verify = async () => true;
-    const result = await runBrowserTask(
+    const result = await runBrowserUse(
       { goal: "Click", scope },
       f.deps,
       new AbortController().signal,
@@ -687,7 +687,7 @@ test("async progress rejection or a stalled observer cannot interrupt browser wo
 
 test("explicit start URL navigates under the acquired lease before Jev evaluation", async () => {
   const f = fixture(["DONE"]);
-  const result = await runBrowserTask(
+  const result = await runBrowserUse(
     { goal: "Open requested page", scope, startUrl: "https://www.google.com/" },
     f.deps,
     new AbortController().signal,
@@ -714,7 +714,7 @@ test("navigation timeout is unknown, is never replayed and releases ownership", 
     }
     return call(name, args, signal);
   };
-  const result = await runBrowserTask(
+  const result = await runBrowserUse(
     { goal: "Open page", scope, startUrl: "https://www.google.com/" },
     f.deps,
     new AbortController().signal,
@@ -731,7 +731,7 @@ test("new tab without explicit URL reports setup requirement, not malformed prot
     name === "page_observe"
       ? Promise.resolve({ native_new_tab: true })
       : call(name, args, signal);
-  const result = await runBrowserTask(
+  const result = await runBrowserUse(
     { goal: "Open page", scope },
     f.deps,
     new AbortController().signal,
@@ -747,7 +747,7 @@ test("non-web URLs and embedded credentials cannot be used for initial navigatio
   ]) {
     const f = fixture(["DONE"]);
     await assert.rejects(() =>
-      runBrowserTask(
+      runBrowserUse(
         { goal: "Open page", scope, startUrl },
         f.deps,
         new AbortController().signal,
@@ -762,7 +762,7 @@ test("partial observations allow guarded actions but cannot establish completion
     const f = fixture(["DONE"]);
     f.page.truncated = {text:false,elements:true,...(viewport===undefined?{}:{viewport_elements:viewport})};
     f.deps.verify = async () => true;
-    const result = await runBrowserTask({goal:"Inspect current viewport",scope},f.deps,new AbortController().signal);
+    const result = await runBrowserUse({goal:"Inspect current viewport",scope},f.deps,new AbortController().signal);
     assert.equal(result.evaluations,1);
     assert.equal(result.reason,viewport===false?"VERIFIED":"OBSERVATION_TRUNCATED");
   }
@@ -773,13 +773,13 @@ test("empty SPA observation is refreshed before evaluation without replaying nav
  f.deps.call=async(...args)=>{if(args[0]==="page_observe" && ++reads<3)return {...snapshot(),text:"",viewport_text:"",elements:[]};return original(...args);};
  const evaluate=f.deps.evaluate;f.deps.evaluate=async(...args)=>{evaluations++;return evaluate(...args);};
  f.deps.verify=async()=>true;
- const result=await runBrowserTask({goal:"Read results",scope,startUrl:"https://fixture.test"},f.deps,new AbortController().signal);
+ const result=await runBrowserUse({goal:"Read results",scope,startUrl:"https://fixture.test"},f.deps,new AbortController().signal);
  assert.equal(result.status,"succeeded");assert.equal(evaluations,1);assert(reads>=3);
  assert.equal(f.calls.filter(c=>c.name==="tab_navigate").length,1);
 });
 test("persistently empty page stops with no paid evaluation",async()=>{
  const f=fixture(["DONE"]);f.page.text="";f.page.elements=[];
- const result=await runBrowserTask({goal:"Read results",scope},f.deps,new AbortController().signal);
+ const result=await runBrowserUse({goal:"Read results",scope},f.deps,new AbortController().signal);
  assert.equal(result.reason,"PAGE_CONTENT_UNAVAILABLE");assert.equal(result.evaluations,0);
  assert.equal(f.calls.filter(c=>c.name==="page_observe").length,6);
 });
@@ -789,41 +789,41 @@ test("default chooser executes validated argmax without a confidence stop", asyn
   const f=fixture(["CLICK","DONE"]), evaluate=f.deps.evaluate;
   f.deps.evaluate=async(req,s)=>{const r=await evaluate(req,s);(r.answers.operation as {confidence:number}).confidence=0.6; if(r.answers.click_target)(r.answers.click_target as {confidence:number}).confidence=0.6;return r;};
   f.deps.verify=async()=>true;
-  const r=await runBrowserTask({goal:"Click",scope},f.deps,new AbortController().signal);
+  const r=await runBrowserUse({goal:"Click",scope},f.deps,new AbortController().signal);
   assert.equal(r.status,"succeeded");assert.equal(r.steps,1);
 });
 
 test("cancel during initial navigation preserves uncertainty and cancelled status",async()=>{
  const f=fixture(["DONE"]),controller=new AbortController(),call=f.deps.call;
  f.deps.call=async(...args)=>{if(args[0]==="tab_navigate"){controller.abort();throw Error("cancelled");}return call(...args);};
- const r=await runBrowserTask({goal:"Open page",scope,startUrl:"https://fixture.test"},f.deps,controller.signal);
+ const r=await runBrowserUse({goal:"Open page",scope,startUrl:"https://fixture.test"},f.deps,controller.signal);
  assert.equal(r.status,"cancelled");assert.equal(r.reason,"OUTCOME_UNKNOWN");assert.equal(r.lastAction?.outcome,"unknown");
 });
 test("initial stale observation retries the read without repeating navigation",async()=>{
  const f=fixture(["DONE"]),call=f.deps.call;let reads=0,nav=0;
  f.deps.call=async(...args)=>{if(args[0]==="tab_navigate")nav++;if(args[0]==="page_observe"&&++reads===1)return {error:"STALE_OBSERVATION"};return call(...args);};
  f.deps.verify=async()=>true;
- const result=await runBrowserTask({goal:"Open results",scope,startUrl:"https://fixture.test"},f.deps,new AbortController().signal);
+ const result=await runBrowserUse({goal:"Open results",scope,startUrl:"https://fixture.test"},f.deps,new AbortController().signal);
  assert.equal(result.status,"succeeded");assert.equal(nav,1);assert.equal(result.staleRetries,1);assert.equal(result.evaluations,1);
 });
 test("post-action stale read does not repeat a confirmed click",async()=>{
  const f=fixture(["CLICK","DONE"]),call=f.deps.call;let clicked=0,stale=false;
  f.deps.call=async(...args)=>{if(args[0]==="page_click"){clicked++;stale=true;await call(...args);return {state:"completed",result:{ok:true}};}if(args[0]==="page_observe"&&stale){stale=false;return {error:"STALE_OBSERVATION"};}return call(...args);};
  f.deps.verify=async()=>true;
- const result=await runBrowserTask({goal:"Click once",scope},f.deps,new AbortController().signal);
+ const result=await runBrowserUse({goal:"Click once",scope},f.deps,new AbortController().signal);
  assert.equal(result.status,"succeeded");assert.equal(clicked,1);assert.equal(result.staleRetries,1);
 });
 test("persistent stale reads stop within shared budget without calling model",async()=>{
  const f=fixture(["DONE"]);let reads=0,model=0;const call=f.deps.call;
  f.deps.call=async(...args)=>{if(args[0]==="page_observe"){reads++;return {error:"STALE_OBSERVATION"};}return call(...args);};
  f.deps.evaluate=async()=>{model++;throw Error("must-not-call");};
- const result=await runBrowserTask({goal:"Read",scope,maxStaleRetries:2},f.deps,new AbortController().signal);
+ const result=await runBrowserUse({goal:"Read",scope,maxStaleRetries:2},f.deps,new AbortController().signal);
  assert.equal(result.status,"blocked");assert.equal(result.reason,"STALE_RETRY_BUDGET");assert.equal(reads,3);assert.equal(model,0);
 });
 test("read recovery does not retry consent failures",async()=>{
  const f=fixture(["DONE"]);let reads=0;const call=f.deps.call;
  f.deps.call=async(...args)=>{if(args[0]==="page_observe"){reads++;return {error:"CONSENT_REQUIRED"};}return call(...args);};
- const result=await runBrowserTask({goal:"Read",scope},f.deps,new AbortController().signal);
+ const result=await runBrowserUse({goal:"Read",scope},f.deps,new AbortController().signal);
  assert.equal(result.reason,"CONSENT_REQUIRED");assert.equal(reads,1);
 });
 
@@ -833,7 +833,7 @@ test("read recovery does not retry consent failures",async()=>{
    f.page.truncated={text:false,elements:true,...(viewport===undefined?{}:{viewport_elements:viewport})};
    f.deps.resolveFieldText=async()=>({text:"from:example.com"});
    let verified=false;f.deps.verify=async()=>{verified=true;return true;};
-   const result=await runBrowserTask({goal:"Search mail from example.com",scope},f.deps,new AbortController().signal);
+   const result=await runBrowserUse({goal:"Search mail from example.com",scope},f.deps,new AbortController().signal);
    assert.equal(f.calls.filter(c=>c.name==="page_type").length,1);
    assert.equal(result.status,"needs_verification");
    assert.equal(result.reason,"OBSERVATION_TRUNCATED");

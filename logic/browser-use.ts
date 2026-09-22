@@ -2,12 +2,12 @@ import { runLoop } from "@0xmaxma/jev-loop";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
-export const BROWSER_LOGIC_CONTRACT_VERSION = 1 as const;
-export class BrowserLogicInputError extends Error {
+export const BROWSER_USE_CONTRACT_VERSION = 1 as const;
+export class BrowserUseInputError extends Error {
   readonly code = "INVALID_INPUT";
   constructor() {
     super("Invalid browser adapter v1 input");
-    this.name = "BrowserLogicInputError";
+    this.name = "BrowserUseInputError";
   }
 }
 
@@ -88,7 +88,7 @@ export type FieldTextRequest = {
   page: { url: string; title: string; text: string };
   recent_actions?: unknown[];
 };
-export type AdapterDependencies = {
+export type BrowserUseDependencies = {
   call: BrowserToolCall;
   evaluate: (
     request: EvaluationRequest,
@@ -101,9 +101,9 @@ export type AdapterDependencies = {
   ) => Promise<{ text: string | null }>;
   /** Trusted code, independent of the chooser. No verifier means needs_verification. */
   verify?: (observation: Observation, signal: AbortSignal) => Promise<boolean>;
-  progress?: (event: AdapterProgress) => void | Promise<void>;
+  progress?: (event: BrowserUseProgress) => void | Promise<void>;
 };
-export type AdapterProgress = {
+export type BrowserUseProgress = {
   contractVersion: 1;
   phase: "evaluating" | "decided" | "acting" | "acted";
   steps: number;
@@ -157,8 +157,8 @@ const Input = z
     targetConfidence: z.number().min(0).max(1).default(0),
   })
   .strict();
-export type BrowserTaskInput = z.input<typeof Input>;
-export type BrowserTaskResult = {
+export type BrowserUseInput = z.input<typeof Input>;
+export type BrowserUseResult = {
   contractVersion: 1;
   lastEvaluation?: { requestId: string; model?: string };
   lastConfirmedAction?: {
@@ -185,7 +185,7 @@ export type BrowserTaskResult = {
   };
   observation?: Observation;
 };
-class AdapterError extends Error {
+class BrowserUseError extends Error {
   constructor(
     message: string,
     readonly notExecuted = false,
@@ -307,13 +307,13 @@ export function decisionQuestions(page: Observation, goal = "") {
 }
 
 /** Run inside the gateway-owned task lifecycle; this function creates no queue or key store. */
-export async function runBrowserTask(
-  raw: BrowserTaskInput,
-  deps: AdapterDependencies,
+export async function runBrowserUse(
+  raw: BrowserUseInput,
+  deps: BrowserUseDependencies,
   signal: AbortSignal,
-): Promise<BrowserTaskResult> {
+): Promise<BrowserUseResult> {
   const parsedInput = Input.safeParse(raw);
-  if (!parsedInput.success) throw new BrowserLogicInputError();
+  if (!parsedInput.success) throw new BrowserUseInputError();
   const input = parsedInput.data;
   const controller = new AbortController();
   const cancelled = () => controller.abort();
@@ -326,10 +326,10 @@ export async function runBrowserTask(
   }, input.timeoutMs);
   let lease: string | undefined,
     page: Observation | undefined,
-    lastAction: BrowserTaskResult["lastAction"],
-    lastConfirmedAction: BrowserTaskResult["lastConfirmedAction"],
-    lastEvaluation: BrowserTaskResult["lastEvaluation"],
-    fieldRequest: BrowserTaskResult["fieldRequest"];
+    lastAction: BrowserUseResult["lastAction"],
+    lastConfirmedAction: BrowserUseResult["lastConfirmedAction"],
+    lastEvaluation: BrowserUseResult["lastEvaluation"],
+    fieldRequest: BrowserUseResult["fieldRequest"];
   let steps = 0,
     evaluations = 0,
     noProgress = 0,
@@ -338,10 +338,10 @@ export async function runBrowserTask(
     textCalls = 0;
   const history: { operation: string; changed: boolean }[] = [];
   const result = (
-    status: BrowserTaskResult["status"],
+    status: BrowserUseResult["status"],
     reason: string,
-  ): BrowserTaskResult => ({
-    contractVersion: BROWSER_LOGIC_CONTRACT_VERSION,
+  ): BrowserUseResult => ({
+    contractVersion: BROWSER_USE_CONTRACT_VERSION,
     lastEvaluation,
     lastConfirmedAction,
     fieldRequest,
@@ -355,7 +355,7 @@ export async function runBrowserTask(
     observation: page,
   });
   const progress = (
-    event: Omit<AdapterProgress, "contractVersion" | "steps" | "evaluations">,
+    event: Omit<BrowserUseProgress, "contractVersion" | "steps" | "evaluations">,
   ) => {
     try {
       const reported = deps.progress?.({
@@ -425,15 +425,15 @@ export async function runBrowserTask(
       throw Error("INVALID_BROWSER_RESPONSE");
     const r = response as Record<string, unknown>;
     if (r.error)
-      throw new AdapterError(
+      throw new BrowserUseError(
         errorCode(Error(String(r.error))),
         r.action_executed === false,
       );
-    if (r.access) throw new AdapterError("CONSENT_REQUIRED", true);
+    if (r.access) throw new BrowserUseError("CONSENT_REQUIRED", true);
     if (r.replayed || r.state === "unknown")
-      throw new AdapterError("OUTCOME_UNKNOWN");
+      throw new BrowserUseError("OUTCOME_UNKNOWN");
     if (mutation && r.state !== "completed")
-      throw new AdapterError("OUTCOME_UNKNOWN");
+      throw new BrowserUseError("OUTCOME_UNKNOWN");
     return (mutation ? r.result : r) as Record<string, unknown>;
   }
   // A document can change while a read is executing (navigation/SPA repaint).
@@ -487,7 +487,7 @@ export async function runBrowserTask(
           true,
         );
       } catch (error) {
-        if (error instanceof AdapterError && error.notExecuted)
+        if (error instanceof BrowserUseError && error.notExecuted)
           lastAction.outcome = "not_executed";
         return result(
           controller.signal.aborted && !timedOut ? "cancelled" : "blocked",
@@ -523,7 +523,7 @@ export async function runBrowserTask(
       page = BrowserObservation.parse(await observeFresh());
     }
     if(emptyViewport()) return result("blocked","PAGE_CONTENT_UNAVAILABLE");
-    return await runLoop<Observation, {op:ReturnType<typeof choice>;validated:Record<string,ReturnType<typeof choice>>;targets:ReturnType<typeof decisionQuestions>["targets"];before:string;request:EvaluationRequest},BrowserTaskResult>({
+    return await runLoop<Observation, {op:ReturnType<typeof choice>;validated:Record<string,ReturnType<typeof choice>>;targets:ReturnType<typeof decisionQuestions>["targets"];before:string;request:EvaluationRequest},BrowserUseResult>({
       signal:controller.signal,maxCycles:input.maxEvaluations+1,stageTimeoutMs:input.timeoutMs+1000,
       thinking: deps.resolveFieldText ? (request,signal)=>deps.resolveFieldText!(request as FieldTextRequest,signal) : undefined,
       thinkingTimeoutMs:15000,maxThinkingCalls:input.maxTextCalls,
@@ -750,10 +750,10 @@ export async function runBrowserTask(
             true,
           );
         } catch (error) {
-          if (error instanceof AdapterError && error.notExecuted)
+          if (error instanceof BrowserUseError && error.notExecuted)
             lastAction.outcome = "not_executed";
           if (
-            error instanceof AdapterError &&
+            error instanceof BrowserUseError &&
             error.notExecuted &&
             errorCode(error) === "STALE_OBSERVATION"
           ) {

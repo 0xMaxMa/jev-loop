@@ -1,0 +1,2 @@
+import {Server} from '@modelcontextprotocol/sdk/server/index.js';
+export function createTaskServer(options:{scope:string;directory:string;authorize:()=>boolean;run:(input:{goal:string;revision:number},context:{signal:AbortSignal;latestGoal:()=>{goal:string;revision:number};authorized:()=>boolean;beforeMutation:(operationId:string,action:unknown)=>void;progress:(event:Record<string,any>)=>void})=>Promise<{status:string;reason:string;[key:string]:unknown}>}):Server;

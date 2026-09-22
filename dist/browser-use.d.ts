@@ -1,6 +1,6 @@
 import { z } from "zod";
-export declare const BROWSER_LOGIC_CONTRACT_VERSION: 1;
-export declare class BrowserLogicInputError extends Error {
+export declare const BROWSER_USE_CONTRACT_VERSION: 1;
+export declare class BrowserUseInputError extends Error {
     readonly code = "INVALID_INPUT";
     constructor();
 }
@@ -231,7 +231,7 @@ export type FieldTextRequest = {
     };
     recent_actions?: unknown[];
 };
-export type AdapterDependencies = {
+export type BrowserUseDependencies = {
     call: BrowserToolCall;
     evaluate: (request: EvaluationRequest, signal: AbortSignal) => Promise<EvaluationResponse>;
     /** Host-owned Thinking implementation; no provider credentials live in this adapter. */
@@ -240,9 +240,9 @@ export type AdapterDependencies = {
     }>;
     /** Trusted code, independent of the chooser. No verifier means needs_verification. */
     verify?: (observation: Observation, signal: AbortSignal) => Promise<boolean>;
-    progress?: (event: AdapterProgress) => void | Promise<void>;
+    progress?: (event: BrowserUseProgress) => void | Promise<void>;
 };
-export type AdapterProgress = {
+export type BrowserUseProgress = {
     contractVersion: 1;
     phase: "evaluating" | "decided" | "acting" | "acted";
     steps: number;
@@ -329,8 +329,8 @@ declare const Input: z.ZodObject<{
     operationConfidence?: number | undefined;
     targetConfidence?: number | undefined;
 }>;
-export type BrowserTaskInput = z.input<typeof Input>;
-export type BrowserTaskResult = {
+export type BrowserUseInput = z.input<typeof Input>;
+export type BrowserUseResult = {
     contractVersion: 1;
     lastEvaluation?: {
         requestId: string;
@@ -367,7 +367,7 @@ export declare function decisionQuestions(page: Observation, goal?: string): {
     }>;
 };
 /** Run inside the gateway-owned task lifecycle; this function creates no queue or key store. */
-export declare function runBrowserTask(raw: BrowserTaskInput, deps: AdapterDependencies, signal: AbortSignal): Promise<BrowserTaskResult>;
+export declare function runBrowserUse(raw: BrowserUseInput, deps: BrowserUseDependencies, signal: AbortSignal): Promise<BrowserUseResult>;
 /** Adapt an authenticated MCP client. Principal scope and cancellation stay with its owner. */
 export declare function mcpBrowserTransport(invoke: (name: string, args: Record<string, unknown>, signal: AbortSignal) => Promise<{
     content: unknown[];

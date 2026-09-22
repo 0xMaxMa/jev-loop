@@ -1,21 +1,21 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.BrowserObservation = exports.BrowserLogicInputError = exports.BROWSER_LOGIC_CONTRACT_VERSION = void 0;
+exports.BrowserObservation = exports.BrowserUseInputError = exports.BROWSER_USE_CONTRACT_VERSION = void 0;
 exports.decisionQuestions = decisionQuestions;
-exports.runBrowserTask = runBrowserTask;
+exports.runBrowserUse = runBrowserUse;
 exports.mcpBrowserTransport = mcpBrowserTransport;
 const jev_loop_1 = require("@0xmaxma/jev-loop");
 const node_crypto_1 = require("node:crypto");
 const zod_1 = require("zod");
-exports.BROWSER_LOGIC_CONTRACT_VERSION = 1;
-class BrowserLogicInputError extends Error {
+exports.BROWSER_USE_CONTRACT_VERSION = 1;
+class BrowserUseInputError extends Error {
     code = "INVALID_INPUT";
     constructor() {
         super("Invalid browser adapter v1 input");
-        this.name = "BrowserLogicInputError";
+        this.name = "BrowserUseInputError";
     }
 }
-exports.BrowserLogicInputError = BrowserLogicInputError;
+exports.BrowserUseInputError = BrowserUseInputError;
 /** Protocol v1. The host owns task persistence, inference, credentials and principal scope. */
 const Element = zod_1.z.object({
     ref: zod_1.z.string().max(100),
@@ -96,7 +96,7 @@ const Input = zod_1.z
     targetConfidence: zod_1.z.number().min(0).max(1).default(0),
 })
     .strict();
-class AdapterError extends Error {
+class BrowserUseError extends Error {
     notExecuted;
     constructor(message, notExecuted = false) {
         super(message);
@@ -210,10 +210,10 @@ function decisionQuestions(page, goal = "") {
     return { questions, targets };
 }
 /** Run inside the gateway-owned task lifecycle; this function creates no queue or key store. */
-async function runBrowserTask(raw, deps, signal) {
+async function runBrowserUse(raw, deps, signal) {
     const parsedInput = Input.safeParse(raw);
     if (!parsedInput.success)
-        throw new BrowserLogicInputError();
+        throw new BrowserUseInputError();
     const input = parsedInput.data;
     const controller = new AbortController();
     const cancelled = () => controller.abort();
@@ -229,7 +229,7 @@ async function runBrowserTask(raw, deps, signal) {
     let steps = 0, evaluations = 0, noProgress = 0, waitStreak = 0, staleRetries = 0, textCalls = 0;
     const history = [];
     const result = (status, reason) => ({
-        contractVersion: exports.BROWSER_LOGIC_CONTRACT_VERSION,
+        contractVersion: exports.BROWSER_USE_CONTRACT_VERSION,
         lastEvaluation,
         lastConfirmedAction,
         fieldRequest,
@@ -307,13 +307,13 @@ async function runBrowserTask(raw, deps, signal) {
             throw Error("INVALID_BROWSER_RESPONSE");
         const r = response;
         if (r.error)
-            throw new AdapterError(errorCode(Error(String(r.error))), r.action_executed === false);
+            throw new BrowserUseError(errorCode(Error(String(r.error))), r.action_executed === false);
         if (r.access)
-            throw new AdapterError("CONSENT_REQUIRED", true);
+            throw new BrowserUseError("CONSENT_REQUIRED", true);
         if (r.replayed || r.state === "unknown")
-            throw new AdapterError("OUTCOME_UNKNOWN");
+            throw new BrowserUseError("OUTCOME_UNKNOWN");
         if (mutation && r.state !== "completed")
-            throw new AdapterError("OUTCOME_UNKNOWN");
+            throw new BrowserUseError("OUTCOME_UNKNOWN");
         return (mutation ? r.result : r);
     }
     // A document can change while a read is executing (navigation/SPA repaint).
@@ -364,7 +364,7 @@ async function runBrowserTask(raw, deps, signal) {
                 }, true);
             }
             catch (error) {
-                if (error instanceof AdapterError && error.notExecuted)
+                if (error instanceof BrowserUseError && error.notExecuted)
                     lastAction.outcome = "not_executed";
                 return result(controller.signal.aborted && !timedOut ? "cancelled" : "blocked", lastAction.outcome === "unknown"
                     ? "OUTCOME_UNKNOWN"
@@ -595,9 +595,9 @@ async function runBrowserTask(raw, deps, signal) {
                         action = await call(name, { ...args, detail: "full", operation_id: operationId }, true);
                     }
                     catch (error) {
-                        if (error instanceof AdapterError && error.notExecuted)
+                        if (error instanceof BrowserUseError && error.notExecuted)
                             lastAction.outcome = "not_executed";
-                        if (error instanceof AdapterError &&
+                        if (error instanceof BrowserUseError &&
                             error.notExecuted &&
                             errorCode(error) === "STALE_OBSERVATION") {
                             check();
