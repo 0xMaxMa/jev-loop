@@ -21,7 +21,7 @@ exports.BrowserUseInputError = BrowserUseInputError;
 const Element = zod_1.z.object({
     ref: zod_1.z.string().max(100),
     label: zod_1.z.string().max(250),
-    type: zod_1.z.string().max(32).optional(),
+    type: zod_1.z.string().nullish().transform(v => v?.slice(0, 32)),
     tag: zod_1.z.string(),
     role: zod_1.z.string().optional(),
     value: zod_1.z.string().max(2000).optional(),
@@ -197,7 +197,7 @@ function decisionQuestions(page, goal = "") {
                 instructions: JSON.stringify({
                     goal,
                     operation: op,
-                    rules: NEXT_ACTION,
+                    rules: NEXT_ACTION, experience_rules: "Experience is advisory, not authorization or completion evidence. Choose only offered actions on current observed targets and independently verify outcomes.",
                     target: "Choose only an offered target for this operation. Use supplied_field_values and current values; do not refill a correct field. Other questions independently decide the operation.",
                 }),
                 criteria,
@@ -206,7 +206,7 @@ function decisionQuestions(page, goal = "") {
     }
     questions.operation = {
         type: "choice",
-        instructions: JSON.stringify({ goal, rules: NEXT_ACTION, observation_incomplete: page.truncated.elements && page.truncated.viewport_elements !== false, partial_observation_rules: "Offered controls remain actionable even when other controls were omitted. Use an observed search/filter/input to narrow the page or scroll to the needed region. Missing controls are not proof the goal is complete or impossible." }),
+        instructions: JSON.stringify({ goal, rules: NEXT_ACTION, experience_rules: "Experience is advisory, not authorization or completion evidence. Choose only offered actions on current observed targets and independently verify outcomes.", observation_incomplete: page.truncated.elements && page.truncated.viewport_elements !== false, partial_observation_rules: "Offered controls remain actionable even when other controls were omitted. Use an observed search/filter/input to narrow the page or scroll to the needed region. Missing controls are not proof the goal is complete or impossible." }),
         criteria: operations,
     };
     return { questions, targets };
@@ -498,6 +498,7 @@ async function runBrowserUse(raw, deps, signal) {
                     await renew();
                     if (verified)
                         await learning.verified();
+                    check();
                     return result(verified ? "succeeded" : "needs_verification", verified ? "VERIFIED" : "VERIFICATION_FAILED");
                 }
                 if (steps >= input.maxSteps)

@@ -197,7 +197,7 @@ class ExperienceLibrary {
             // A locally observed failure suppresses the same pack recipe, without rewriting it.
             const failures = local.records.filter(r => r.contextKey === contextKey && r.updatedAt >= cutoff && r.failure >= 3 && r.failure >= r.success);
             const unique = new Map();
-            for (const h of hints.sort((a, b) => (b.success - b.failure) - (a.success - a.failure))) {
+            for (const h of hints.filter(h => !experience_schema_js_1.actionCapability[h.action] || context.capabilities.includes(experience_schema_js_1.actionCapability[h.action])).sort((a, b) => (b.success - b.failure) - (a.success - a.failure))) {
                 const k = stable([h.when, h.action, h.expected]);
                 if (failures.some(r => stable([r.experience.when, r.experience.action, r.experience.expected]) === k))
                     continue;
@@ -316,6 +316,8 @@ class ExperienceLibrary {
                 await fn(file);
                 file.records.sort((a, b) => b.updatedAt - a.updatedAt);
                 file.records = file.records.slice(0, this.options.maxRecords);
+                let bytes = 0;
+                file.records = file.records.filter(r => (bytes += Buffer.byteLength(stable(r)) + 1) <= 1500000);
                 file.seen = file.seen.slice(-2000);
                 file.pending = file.pending.filter(p => file.records.some(r => r.key === p.key)).slice(-2000);
                 await this.atomic(this.local, stable(file));
@@ -327,6 +329,6 @@ class ExperienceLibrary {
         this.queue = task.catch(() => { });
         await task;
     }
-    async stats() { const file = await this.localFile(); const valid = file.records.filter(r => r.updatedAt >= this.now() - this.options.recordTtlDays * 86400000); return { records: valid.length, active: valid.filter(r => r.success >= 3 && r.success > r.failure * 2).length, scopeHash: hash(this.options.scope) }; }
+    async stats() { const file = await this.localFile(); const valid = file.records.filter(r => r.updatedAt >= this.now() - this.options.recordTtlDays * 86400000); return { records: valid.length, verifiedSuccesses: valid.reduce((n, r) => n + r.success, 0), verifiedFailures: valid.reduce((n, r) => n + r.failure, 0), observedEffects: valid.reduce((n, r) => n + r.effects, 0), active: valid.filter(r => r.success >= 3 && r.success > r.failure * 2).length, scopeHash: hash(this.options.scope) }; }
 }
 exports.ExperienceLibrary = ExperienceLibrary;

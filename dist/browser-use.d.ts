@@ -15,7 +15,7 @@ export declare const BrowserObservation: z.ZodObject<{
     elements: z.ZodArray<z.ZodObject<{
         ref: z.ZodString;
         label: z.ZodString;
-        type: z.ZodOptional<z.ZodString>;
+        type: z.ZodEffects<z.ZodOptional<z.ZodNullable<z.ZodString>>, string | undefined, string | null | undefined>;
         tag: z.ZodString;
         role: z.ZodOptional<z.ZodString>;
         value: z.ZodOptional<z.ZodString>;
@@ -73,7 +73,7 @@ export declare const BrowserObservation: z.ZodObject<{
         label: string;
         tag: string;
         operations: ("CLICK" | "TYPE_TEXT" | "SELECT")[];
-        type?: string | undefined;
+        type?: string | null | undefined;
         expanded?: string | undefined;
         selected?: string | undefined;
         role?: string | undefined;
@@ -175,7 +175,7 @@ export declare const BrowserObservation: z.ZodObject<{
         label: string;
         tag: string;
         operations: ("CLICK" | "TYPE_TEXT" | "SELECT")[];
-        type?: string | undefined;
+        type?: string | null | undefined;
         expanded?: string | undefined;
         selected?: string | undefined;
         role?: string | undefined;

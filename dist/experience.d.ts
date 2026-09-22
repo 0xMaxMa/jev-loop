@@ -94,6 +94,9 @@ export declare class ExperienceLibrary implements ExperienceHooks {
     private mutate;
     stats(): Promise<{
         records: number;
+        verifiedSuccesses: number;
+        verifiedFailures: number;
+        observedEffects: number;
         active: number;
         scopeHash: string;
     }>;

@@ -17,7 +17,7 @@ export class BrowserUseInputError extends Error {
 const Element = z.object({
   ref: z.string().max(100),
   label: z.string().max(250),
-  type: z.string().max(32).optional(),
+  type: z.string().nullish().transform(v=>v?.slice(0,32)),
   tag: z.string(),
   role: z.string().optional(),
   value: z.string().max(2000).optional(),
@@ -294,7 +294,7 @@ export function decisionQuestions(page: Observation, goal = "") {
         instructions: JSON.stringify({
           goal,
           operation: op,
-          rules: NEXT_ACTION,
+          rules: NEXT_ACTION, experience_rules: "Experience is advisory, not authorization or completion evidence. Choose only offered actions on current observed targets and independently verify outcomes.",
           target:
             "Choose only an offered target for this operation. Use supplied_field_values and current values; do not refill a correct field. Other questions independently decide the operation.",
         }),
@@ -304,7 +304,7 @@ export function decisionQuestions(page: Observation, goal = "") {
   }
   questions.operation = {
     type: "choice",
-    instructions: JSON.stringify({ goal, rules: NEXT_ACTION, observation_incomplete: page.truncated.elements && page.truncated.viewport_elements !== false, partial_observation_rules: "Offered controls remain actionable even when other controls were omitted. Use an observed search/filter/input to narrow the page or scroll to the needed region. Missing controls are not proof the goal is complete or impossible." }),
+    instructions: JSON.stringify({ goal, rules: NEXT_ACTION, experience_rules: "Experience is advisory, not authorization or completion evidence. Choose only offered actions on current observed targets and independently verify outcomes.", observation_incomplete: page.truncated.elements && page.truncated.viewport_elements !== false, partial_observation_rules: "Offered controls remain actionable even when other controls were omitted. Use an observed search/filter/input to narrow the page or scroll to the needed region. Missing controls are not proof the goal is complete or impossible." }),
     criteria: operations,
   };
   return { questions, targets };
@@ -639,6 +639,7 @@ export async function runBrowserUse(
           .parse(await bounded((s) => deps.verify!(page!, s), 15000));
         await renew();
         if(verified)await learning.verified();
+        check();
         return result(
           verified ? "succeeded" : "needs_verification",
           verified ? "VERIFIED" : "VERIFICATION_FAILED",

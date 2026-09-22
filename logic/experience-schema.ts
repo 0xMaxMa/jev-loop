@@ -12,6 +12,7 @@ export const Effect=z.enum(['value-changed','selection-changed','expanded-change
 export const Pattern=z.object({role:Role,state:State}).strict();
 export const Experience=z.object({id:Slug,when:Pattern,action:Action,expected:Effect}).strict();
 const Target=z.object({id:z.string().min(1).max(200),pathPrefixes:z.array(z.string().regex(/^\/[a-zA-Z0-9/_-]*$/).max(120)).max(10).optional(),minVersion:Version.optional(),maxVersion:Version.optional()}).strict();
+export const actionCapability:Record<string,string>={click:'click',type:'type',select:'select',press:'press',enter:'keypress',tab:'keypress',escape:'keypress','scroll-up':'scroll','scroll-down':'scroll','open-app':'open-app','game-action':'game-action','move-left':'game-action','move-right':'game-action',jump:'game-action',interact:'game-action',attack:'game-action',defend:'game-action'};
 export const Pack=z.object({schemaVersion:z.literal(1),id:PackId,version:Version,logic:Logic,contractVersion:z.literal(1),category:Category,target:Target,requires:z.array(Capability).min(1).max(12),validation:z.enum(['fixture','live']),checks:z.object({runs:z.number().int().min(3),passed:z.number().int().min(3)}).strict(),experiences:z.array(Experience).min(1).max(100)}).strict().superRefine((p,c)=>{
  if(p.checks.passed>p.checks.runs)c.addIssue({code:'custom',message:'INVALID_CHECKS'});
  if(!p.id.startsWith(p.category+'/'))c.addIssue({code:'custom',message:'CATEGORY_MISMATCH'});
@@ -22,8 +23,8 @@ export const Pack=z.object({schemaVersion:z.literal(1),id:PackId,version:Version
  if(['app','os'].includes(p.category)&&p.logic!=='computer-use')c.addIssue({code:'custom',message:'LOGIC_MISMATCH'});
  if(p.category==='game'&&p.logic!=='game-use')c.addIssue({code:'custom',message:'LOGIC_MISMATCH'});
  if(new Set(p.experiences.map(e=>e.id)).size!==p.experiences.length)c.addIssue({code:'custom',message:'DUPLICATE_EXPERIENCE'});
- const needed:Record<string,string>={click:'click',type:'type',select:'select',press:'press',enter:'keypress',tab:'keypress',escape:'keypress','scroll-up':'scroll','scroll-down':'scroll','open-app':'open-app','game-action':'game-action','move-left':'game-action','move-right':'game-action',jump:'game-action',interact:'game-action',attack:'game-action',defend:'game-action'};
- for(const e of p.experiences)if(needed[e.action]&&!p.requires.includes(needed[e.action] as any))c.addIssue({code:'custom',message:'MISSING_CAPABILITY'});
+
+ for(const e of p.experiences)if(actionCapability[e.action]&&!p.requires.includes(actionCapability[e.action] as any))c.addIssue({code:'custom',message:'MISSING_CAPABILITY'});
 });
 export const Index=z.object({schemaVersion:z.literal(1),packs:z.array(z.object({id:PackId,version:Version,sha256:z.string().regex(/^[a-f0-9]{64}$/),logic:Logic,category:Category,target:Target,contractVersion:z.literal(1),requires:z.array(Capability).max(12)}).strict()).max(2000)}).strict();
 export type ExperienceRecord=z.infer<typeof Experience>;

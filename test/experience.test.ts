@@ -72,3 +72,12 @@ test('app, OS and game packs match exact identities and supported versions',asyn
  const mac:ExperienceContext={logic:'computer-use',identity:{category:'os',id:'macos',version:'14.0.0'},capabilities:['observe','open-app'],controls:[{role:'application',state:'available'}]};assert.equal((await library.select(mac,new AbortController().signal))[0].action,'open-app');
  assert(!downloads.some(x=>x.includes('2.0.0')));
 });
+test('local experience is not offered after its required capability disappears',async t=>{
+ const f=await fixture(t,{autoDownload:false});for(let i=0;i<3;i++)await f.library.record(context,experience,'verified-success','v'+i);
+ assert.deepEqual(await f.library.select({...context,capabilities:['observe']},new AbortController().signal),[]);
+});
+test('null HTML type remains compatible with existing browser tool observations',async()=>{
+ const {BrowserObservation}=await import('../logic/browser-use.ts');
+ const p=BrowserObservation.parse({protocol_version:1,generation:'g',url:'https://example.test',title:'',text:'',elements:[{ref:'button',tag:'button',type:null,label:'Go',operations:['CLICK']}],scroll:{up:false,down:false},truncated:{text:false,elements:false}});
+ assert.equal(p.elements[0].type,undefined);
+});

@@ -48,6 +48,7 @@ export declare const Experience: z.ZodObject<{
     };
     action: "click" | "type" | "select" | "open-app" | "press" | "game-action" | "enter" | "tab" | "escape" | "scroll-up" | "scroll-down" | "move-left" | "move-right" | "jump" | "interact" | "attack" | "defend" | "wait";
 }>;
+export declare const actionCapability: Record<string, string>;
 export declare const Pack: z.ZodEffects<z.ZodObject<{
     schemaVersion: z.ZodLiteral<1>;
     id: z.ZodString;

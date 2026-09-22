@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Context = exports.Index = exports.Pack = exports.Experience = exports.Pattern = exports.Effect = exports.Action = exports.State = exports.Role = exports.Capability = exports.PackId = exports.Category = exports.Logic = void 0;
+exports.Context = exports.Index = exports.Pack = exports.actionCapability = exports.Experience = exports.Pattern = exports.Effect = exports.Action = exports.State = exports.Role = exports.Capability = exports.PackId = exports.Category = exports.Logic = void 0;
 exports.compareVersions = compareVersions;
 exports.compatible = compatible;
 const zod_1 = require("zod");
@@ -17,6 +17,7 @@ exports.Effect = zod_1.z.enum(['value-changed', 'selection-changed', 'expanded-c
 exports.Pattern = zod_1.z.object({ role: exports.Role, state: exports.State }).strict();
 exports.Experience = zod_1.z.object({ id: Slug, when: exports.Pattern, action: exports.Action, expected: exports.Effect }).strict();
 const Target = zod_1.z.object({ id: zod_1.z.string().min(1).max(200), pathPrefixes: zod_1.z.array(zod_1.z.string().regex(/^\/[a-zA-Z0-9/_-]*$/).max(120)).max(10).optional(), minVersion: Version.optional(), maxVersion: Version.optional() }).strict();
+exports.actionCapability = { click: 'click', type: 'type', select: 'select', press: 'press', enter: 'keypress', tab: 'keypress', escape: 'keypress', 'scroll-up': 'scroll', 'scroll-down': 'scroll', 'open-app': 'open-app', 'game-action': 'game-action', 'move-left': 'game-action', 'move-right': 'game-action', jump: 'game-action', interact: 'game-action', attack: 'game-action', defend: 'game-action' };
 exports.Pack = zod_1.z.object({ schemaVersion: zod_1.z.literal(1), id: exports.PackId, version: Version, logic: exports.Logic, contractVersion: zod_1.z.literal(1), category: exports.Category, target: Target, requires: zod_1.z.array(exports.Capability).min(1).max(12), validation: zod_1.z.enum(['fixture', 'live']), checks: zod_1.z.object({ runs: zod_1.z.number().int().min(3), passed: zod_1.z.number().int().min(3) }).strict(), experiences: zod_1.z.array(exports.Experience).min(1).max(100) }).strict().superRefine((p, c) => {
     if (p.checks.passed > p.checks.runs)
         c.addIssue({ code: 'custom', message: 'INVALID_CHECKS' });
@@ -42,9 +43,8 @@ exports.Pack = zod_1.z.object({ schemaVersion: zod_1.z.literal(1), id: exports.P
         c.addIssue({ code: 'custom', message: 'LOGIC_MISMATCH' });
     if (new Set(p.experiences.map(e => e.id)).size !== p.experiences.length)
         c.addIssue({ code: 'custom', message: 'DUPLICATE_EXPERIENCE' });
-    const needed = { click: 'click', type: 'type', select: 'select', press: 'press', enter: 'keypress', tab: 'keypress', escape: 'keypress', 'scroll-up': 'scroll', 'scroll-down': 'scroll', 'open-app': 'open-app', 'game-action': 'game-action', 'move-left': 'game-action', 'move-right': 'game-action', jump: 'game-action', interact: 'game-action', attack: 'game-action', defend: 'game-action' };
     for (const e of p.experiences)
-        if (needed[e.action] && !p.requires.includes(needed[e.action]))
+        if (exports.actionCapability[e.action] && !p.requires.includes(exports.actionCapability[e.action]))
             c.addIssue({ code: 'custom', message: 'MISSING_CAPABILITY' });
 });
 exports.Index = zod_1.z.object({ schemaVersion: zod_1.z.literal(1), packs: zod_1.z.array(zod_1.z.object({ id: exports.PackId, version: Version, sha256: zod_1.z.string().regex(/^[a-f0-9]{64}$/), logic: exports.Logic, category: exports.Category, target: Target, contractVersion: zod_1.z.literal(1), requires: zod_1.z.array(exports.Capability).max(12) }).strict()).max(2000) }).strict();
