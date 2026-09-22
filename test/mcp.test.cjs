@@ -38,3 +38,19 @@ test('adapter rechecks revoked authorization before action',async t=>{
   const result=await client.callTool({name:'jev_run',arguments:{adapter:'browser',input:{}}});
   assert.equal(result.isError,true);assert.equal(actions,0);
 });
+test('standalone stdio CLI supports an independent MCP client',async t=>{
+  const {mkdtemp,writeFile,rm}=require('node:fs/promises');
+  const {join}=require('node:path');
+  const {tmpdir}=require('node:os');
+  const {StdioClientTransport}=require('@modelcontextprotocol/sdk/client/stdio.js');
+  const dir=await mkdtemp(join(tmpdir(),'jev-stdio-'));
+  const config=join(dir,'host.mjs');
+  await writeFile(config,'export default () => ({authorize:()=>true,adapters:[{id:"fixture",parse:x=>x,run:async x=>({status:"completed",goal:x.goal})}]});');
+  const client=new Client({name:'independent-agent',version:'1'});
+  try {
+    await client.connect(new StdioClientTransport({command:process.execPath,args:[require.resolve('../cli.cjs'),'--config',config],stderr:'pipe'}));
+    assert.equal((await client.listTools()).tools[0].name,'jev_run');
+    const response=await client.callTool({name:'jev_run',arguments:{adapter:'fixture',input:{goal:'test stdio'}}});
+    assert.equal(JSON.parse(response.content[0].text).status,'completed');
+  } finally {await client.close();await rm(dir,{recursive:true,force:true});}
+});
