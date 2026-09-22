@@ -21,7 +21,7 @@ async function bounded(operation, signal, timeoutMs) {
 async function runLoop(options) {
   const {signal,observe,decide,execute}=options;
   const maxCycles=options.maxCycles??100,stageTimeoutMs=options.stageTimeoutMs??60000;
-  if(!Number.isInteger(maxCycles)||maxCycles<1||maxCycles>10000||!Number.isFinite(stageTimeoutMs)||stageTimeoutMs<1)throw new LoopError('LOOP_INVALID_BUDGET');
+  if(!Number.isInteger(maxCycles)||maxCycles<1||maxCycles>10000||!Number.isInteger(stageTimeoutMs)||stageTimeoutMs<1||stageTimeoutMs>2147483647)throw new LoopError('LOOP_INVALID_BUDGET');
   for(let cycle=0;cycle<maxCycles;cycle++) {
     signal.throwIfAborted();
     const invoke=(fn)=>bounded(async local=>{const result=await fn({cycle,signal:local});local.throwIfAborted();return result;},signal,stageTimeoutMs);

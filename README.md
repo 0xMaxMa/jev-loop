@@ -6,7 +6,7 @@ Give an agent a goal-driven automation loop through MCP. Jev Loop is a reusable 
 
 ```mermaid
 flowchart TD
-    A[Gateway / Claude Code / Codex / other MCP client] -->|MCP tools/list and tools/call| S[Jev Loop MCP Server]
+    A[Claude Code / Codex / Agent] -->|MCP tools/list and tools/call| S[Jev Loop MCP Server]
     S --> C[Jev Loop Core: observe → decide → act]
     C --> J[Jev decision provider]
     C --> D[Domain adapter]
@@ -15,6 +15,10 @@ flowchart TD
     D --> G[Game MCP tools]
     D --> T[Text / Thinking helper]
     T --> M[Configured thinking model]
+    classDef core fill:#f97316,stroke:#9a3412,stroke-width:4px,color:#111827,font-weight:bold;
+    classDef supporting fill:#e2e8f0,stroke:#94a3b8,color:#0f172a;
+    class C core;
+    class A,S,J,D,B,P,G,T,M supporting;
 ```
 
 **MCP transports calls; adapters supply domain meaning.** A browser adapter maps observations into decision candidates, resolves action targets, checks freshness, handles leases and records mutation receipts. A desktop or game adapter implements its own equivalent semantics. Existing MCP servers do not need modifications if an adapter can wrap their tools. Arbitrary MCP tools are not automatically safe or effective automation adapters.
@@ -25,7 +29,7 @@ flowchart TD
 - **Domain adapter:** translates domain tools, enforces scope and freshness, supplies recovery and completion evidence. It must check cancellation/authorization immediately before every side effect.
 - **Thinking module:** handles bounded JSON subproblems such as text generation. Provider keys stay in trusted host configuration, never tool arguments.
 
-For Remote Browser, the adapter package can retain its existing runner package name for compatibility; it delegates iteration to Core. The extension supplies observation/action capabilities. Core and model credentials are not installed in the extension.
+For Remote Browser, the `@getpod/remote-browser-adapter` package delegates iteration to Core. The extension supplies observation/action capabilities. Core and model credentials are not installed in the extension.
 
 ## Run as an MCP server
 

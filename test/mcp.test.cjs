@@ -20,7 +20,7 @@ test('agent discovers and invokes a domain adapter over MCP',async t=>{
 test('denied and unknown adapters never execute',async t=>{
   let count=0;
   const client=await connect(t,{authorize:()=>false,adapters:[{id:'browser',parse:x=>x,run:async()=>{count++;}}]});
-  await assert.rejects(client.callTool({name:'jev_run',arguments:{adapter:'browser',input:{}}}));
+  assert.equal((await client.callTool({name:'jev_run',arguments:{adapter:'browser',input:{}}})).isError,true);
   await assert.rejects(client.callTool({name:'jev_run',arguments:{adapter:'other',input:{}}}));
   assert.equal(count,0);
 });
@@ -53,4 +53,12 @@ test('standalone stdio CLI supports an independent MCP client',async t=>{
     const response=await client.callTool({name:'jev_run',arguments:{adapter:'fixture',input:{goal:'test stdio'}}});
     assert.equal(JSON.parse(response.content[0].text).status,'completed');
   } finally {await client.close();await rm(dir,{recursive:true,force:true});}
+});
+
+test('parser and authorization exceptions do not expose host details',async t=>{
+ for(const source of ['parse','authorize']) {
+  const client=await connect(t,{authorize:()=>{if(source==='authorize')throw Error('private-host-detail');return true;},adapters:[{id:'test',parse:()=>{throw Error('private-host-detail');},run:async()=>{throw Error('must-not-run');}}]});
+  const response=await client.callTool({name:'jev_run',arguments:{adapter:'test',input:{}}});
+  assert.equal(response.isError,true);assert.equal(JSON.stringify(response).includes('private-host-detail'),false);
+ }
 });

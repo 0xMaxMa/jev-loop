@@ -35,12 +35,12 @@ function createLoopServer({ adapters, authorize, signal, timeoutMs = 600000 }) {
     if (active) throw Error('LOOP_BUSY');
     const runSignal = AbortSignal.any([lifetime.signal, extra.signal, AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])]);
     const check = () => { runSignal.throwIfAborted(); if (authorize(adapter.id) !== true) throw Error('ACCESS_DENIED'); };
-    check();
-    const input = adapter.parse(args.input);
-    check();
-    active = true;
     let abort;
     try {
+      check();
+      const input = adapter.parse(args.input);
+      check();
+      active = true;
       const cancelled = new Promise((_, reject) => {
         abort = () => reject(Error('LOOP_INTERRUPTED_RECONCILE_REQUIRED'));
         runSignal.addEventListener('abort', abort, { once: true });

@@ -36,3 +36,7 @@ test('thinking rejects code/prose, truncated JSON and credential-bearing URLs',a
  await assert.rejects(thinkJson({...config,baseUrl:'https://user:password@models.example/v1'},request,signal),/INVALID_CONFIG/);
  await assert.rejects(thinkJson(config,request,signal,async()=>new Response(JSON.stringify({choices:[{finish_reason:'length',message:{content:'{"ok":true}'}}]}))),/INVALID_RESPONSE/);
 });
+
+test('overflowing stage budgets are rejected before observation',async()=>{
+ await assert.rejects(runLoop({signal:new AbortController().signal,stageTimeoutMs:2147483648,observe:async()=>{throw Error('must-not-observe');},decide:async()=>({result:true}),execute:async()=>{}}),/LOOP_INVALID_BUDGET/);
+});
