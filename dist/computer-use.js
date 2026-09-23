@@ -11,12 +11,14 @@ exports.ComputerObservation = zod_1.z.object({ generation: zod_1.z.string().min(
 const Input = zod_1.z.object({ goal: zod_1.z.string().min(1).max(16000), revision: zod_1.z.number().int().positive().default(1), maxSteps: zod_1.z.number().int().min(1).max(100).default(30), timeoutMs: zod_1.z.number().int().min(1).max(600000).default(120000) }).strict();
 const Choice = zod_1.z.object({ choice: zod_1.z.string(), confidence: zod_1.z.number().min(0).max(1), probabilities: zod_1.z.record(zod_1.z.number().min(0).max(1)) });
 async function runComputerUse(raw, deps, signal) {
+    let satisfiedField;
     const input = Input.parse(raw), runSignal = AbortSignal.any([signal, AbortSignal.timeout(input.timeoutMs)]);
     let goal = { revision: input.revision, goal: input.goal }, steps = 0, lease, pending, last;
     const result = (status, reason) => ({ status, reason, revision: goal.revision, steps, ...(pending ? { operationId: pending } : {}), ...(last ? { observation: last } : {}) });
     const check = () => { runSignal.throwIfAborted(); if (!deps.authorized())
         throw Error('ACCESS_DENIED'); };
     const update = () => { const n = deps.latestGoal?.(); if (n && n.revision > goal.revision) {
+        satisfiedField = undefined;
         goal = zod_1.z.object({ revision: zod_1.z.number().int().positive(), goal: zod_1.z.string().min(1).max(16000) }).parse(n);
     } };
     const call = async (name, args = {}) => { check(); return deps.call(name, { ...args, ...(lease ? { lease_token: lease } : {}) }, runSignal); };
@@ -37,6 +39,8 @@ async function runComputerUse(raw, deps, signal) {
                 const criteria = { WAIT: 'Wait for UI change', DONE: 'Goal appears complete; independent verification follows', BLOCKED: 'No supported step can progress' };
                 const targets = new Map();
                 for (const app of state.apps) {
+                    if (app.id === state.application)
+                        continue;
                     const id = 'open:' + app.id;
                     criteria[id] = 'Open ' + app.name;
                     targets.set(id, { kind: 'open', app_id: app.id });
@@ -45,6 +49,8 @@ async function runComputerUse(raw, deps, signal) {
                     if (c.sensitive)
                         continue;
                     for (const kind of c.actions) {
+                        if (kind === 'type' && satisfiedField?.application === state.application && satisfiedField.windowTitle === state.windowTitle && state.controls.filter(x => x.label === c.label && x.role === c.role).length === 1 && satisfiedField.label === c.label && satisfiedField.role === c.role && satisfiedField.value === c.value)
+                            continue;
                         const id = kind + ':' + c.ref;
                         criteria[id] = JSON.stringify({ kind, label: c.label, role: c.role, value: c.value });
                         targets.set(id, { kind, ref: c.ref });
@@ -102,9 +108,15 @@ async function runComputerUse(raw, deps, signal) {
                 if (action.kind === 'type') {
                     if (!deps.thinking)
                         return result('needs_input', 'FIELD_TEXT_REQUIRED');
-                    const text = zod_1.z.object({ text: zod_1.z.string().max(2000).nullable() }).strict().parse(await ctx.think({ goal: goal.goal, control: last?.controls.find(c => c.ref === action.ref), application: last?.application }));
+                    const text = zod_1.z.object({ text: zod_1.z.string().max(2000).nullable() }).strict().parse(await ctx.think({ goal: goal.goal, control: last?.controls.find(c => c.ref === action.ref), application: last?.application, windowTitle: last?.windowTitle, visibleText: last?.text, controls: last?.controls }));
                     if (text.text === null)
                         return result('needs_input', 'FIELD_TEXT_REQUIRED');
+                    const field = last?.controls.find(c => c.ref === action.ref);
+                    if (field && last) {
+                        satisfiedField = { application: last.application, windowTitle: last.windowTitle, label: field.label, role: field.role, value: text.text };
+                        if (field.value === text.text)
+                            return;
+                    }
                     action.text = text.text;
                 }
                 check();

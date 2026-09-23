@@ -21,11 +21,12 @@ export interface ComputerUseResult {status:'succeeded'|'needs_verification'|'nee
 const Input=z.object({goal:z.string().min(1).max(16000),revision:z.number().int().positive().default(1),maxSteps:z.number().int().min(1).max(100).default(30),timeoutMs:z.number().int().min(1).max(600000).default(120000)}).strict();
 const Choice=z.object({choice:z.string(),confidence:z.number().min(0).max(1),probabilities:z.record(z.number().min(0).max(1))});
 export async function runComputerUse(raw:unknown,deps:ComputerUseDependencies,signal:AbortSignal):Promise<ComputerUseResult> {
+ let satisfiedField:{application:string;windowTitle?:string;label:string;role:string;value:string}|undefined;
  const input=Input.parse(raw),runSignal=AbortSignal.any([signal,AbortSignal.timeout(input.timeoutMs)]);
  let goal:GoalRevision={revision:input.revision,goal:input.goal},steps=0,lease:string|undefined,pending:string|undefined,last:ComputerState|undefined;
  const result=(status:ComputerUseResult['status'],reason:string):ComputerUseResult=>({status,reason,revision:goal.revision,steps,...(pending?{operationId:pending}:{}),...(last?{observation:last}:{})});
  const check=()=>{runSignal.throwIfAborted();if(!deps.authorized())throw Error('ACCESS_DENIED');};
- const update=()=>{const n=deps.latestGoal?.();if(n && n.revision>goal.revision){goal=z.object({revision:z.number().int().positive(),goal:z.string().min(1).max(16000)}).parse(n);}};
+ const update=()=>{const n=deps.latestGoal?.();if(n && n.revision>goal.revision){satisfiedField=undefined;goal=z.object({revision:z.number().int().positive(),goal:z.string().min(1).max(16000)}).parse(n);}};
  const call=async(name:string,args:Record<string,unknown>={})=>{check();return deps.call(name,{...args,...(lease?{lease_token:lease}:{})},runSignal);};
  try {
   lease=z.object({lease_token:z.string().min(1)}).parse(await call('computer_acquire')).lease_token;
@@ -38,8 +39,8 @@ export async function runComputerUse(raw:unknown,deps:ComputerUseDependencies,si
     check();const revision=goal.revision;
     const criteria:Record<string,string>={WAIT:'Wait for UI change',DONE:'Goal appears complete; independent verification follows',BLOCKED:'No supported step can progress'};
     const targets=new Map<string,Record<string,unknown>>();
-    for(const app of state.apps){const id='open:'+app.id;criteria[id]='Open '+app.name;targets.set(id,{kind:'open',app_id:app.id});}
-    for(const c of state.controls){if(c.sensitive)continue;for(const kind of c.actions){const id=kind+':'+c.ref;criteria[id]=JSON.stringify({kind,label:c.label,role:c.role,value:c.value});targets.set(id,{kind,ref:c.ref});}}
+    for(const app of state.apps){if(app.id===state.application)continue;const id='open:'+app.id;criteria[id]='Open '+app.name;targets.set(id,{kind:'open',app_id:app.id});}
+    for(const c of state.controls){if(c.sensitive)continue;for(const kind of c.actions){if(kind==='type'&&satisfiedField?.application===state.application&&satisfiedField.windowTitle===state.windowTitle&&state.controls.filter(x=>x.label===c.label&&x.role===c.role).length===1&&satisfiedField.label===c.label&&satisfiedField.role===c.role&&satisfiedField.value===c.value)continue;const id=kind+':'+c.ref;criteria[id]=JSON.stringify({kind,label:c.label,role:c.role,value:c.value});targets.set(id,{kind,ref:c.ref});}}
     for(const key of ['enter','tab','escape','up','down','left','right']){const id='key:'+key;criteria[id]='Press '+key+' in the currently focused application';targets.set(id,{kind:'key',key});}
     // Jev supports bounded choice questions; never silently discard targets.
     if(Object.keys(criteria).length>255)return {result:result('blocked','ACTION_SPACE_TOO_LARGE')};
@@ -64,8 +65,8 @@ export async function runComputerUse(raw:unknown,deps:ComputerUseDependencies,si
     const action={...d.targets.get(d.action)!};
     if(action.kind==='type'){
      if(!deps.thinking)return result('needs_input','FIELD_TEXT_REQUIRED');
-     const text=z.object({text:z.string().max(2000).nullable()}).strict().parse(await ctx.think({goal:goal.goal,control:last?.controls.find(c=>c.ref===action.ref),application:last?.application}));
-     if(text.text===null)return result('needs_input','FIELD_TEXT_REQUIRED');action.text=text.text;
+     const text=z.object({text:z.string().max(2000).nullable()}).strict().parse(await ctx.think({goal:goal.goal,control:last?.controls.find(c=>c.ref===action.ref),application:last?.application,windowTitle:last?.windowTitle,visibleText:last?.text,controls:last?.controls}));
+     if(text.text===null)return result('needs_input','FIELD_TEXT_REQUIRED');const field=last?.controls.find(c=>c.ref===action.ref);if(field&&last){satisfiedField={application:last.application,windowTitle:last.windowTitle,label:field.label,role:field.role,value:text.text};if(field.value===text.text)return;}action.text=text.text;
     }
     check();update();if(goal.revision!==d.revision)return;
     const operationId=randomUUID();

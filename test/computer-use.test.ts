@@ -38,6 +38,18 @@ test('independent verification is strict and partial observations cannot complet
  for(const truncated of [true,false]){const f=fixture(['DONE']);f.state.truncated=truncated;f.deps.verify=async()=>true;
  const r=await runComputerUse({goal:'Inspect'},f.deps,new AbortController().signal);assert.equal(r.status,truncated?'needs_verification':'succeeded');}
 });
+test('experience hooks are ignored by the basic computer loop',async()=>{
+ for(const verified of [true,false]){
+  const f=fixture(['type:c1','DONE']),call=f.deps.call,evaluate=f.deps.evaluate;const outcomes:string[]=[];let state=structuredClone(f.state),hintSeen=false;
+  f.deps.call=async(name,args,signal)=>{if(name==='computer_observe')return structuredClone(state);if(name==='computer_action')state={...state,generation:'g2',controls:[{...state.controls[0],value:'milk'}]};return call(name,args,signal);};
+  (f.deps as any).experience={select:async()=>[{when:{role:'text-area',state:'empty'},action:'type',expected:'value-changed',source:'pack',validation:'fixture',success:0,failure:0}],record:async(_c:unknown,_e:unknown,outcome:string)=>{outcomes.push(outcome);}};
+  f.deps.evaluate=async(...args)=>{hintSeen=Array.isArray((args[0].state as any).experience)&&(args[0].state as any).experience.length>0;return evaluate(...args);};
+  f.deps.verify=async()=>verified;
+  await runComputerUse({goal:'Create a note'},f.deps,new AbortController().signal);
+  assert.equal(hintSeen,false);assert.deepEqual(outcomes,[]);
+ }
+});
+
 test('static app content and window title survive observation parsing and reach verification',async()=>{
  const f=fixture(['DONE']);Object.assign(f.state,{windowTitle:'September 2026',text:['23','Team meeting 10:00']});
  f.deps.verify=async state=>{assert.equal(state.windowTitle,'September 2026');assert.deepEqual(state.text,['23','Team meeting 10:00']);return true;};
@@ -45,4 +57,11 @@ test('static app content and window title survive observation parsing and reach 
 });
 test('BLOCKED choice means no supported action, not an account or provider refusal',async()=>{
  const f=fixture(['BLOCKED']);const r=await runComputerUse({goal:'Inspect'},f.deps,new AbortController().signal);assert.equal(r.reason,'NO_SUPPORTED_ACTION');assert.equal(r.steps,0);
+});
+
+test('fresh satisfied field values progress without repeated typing or reopening current app',async()=>{
+ const f=fixture(['type:c1','key:enter','DONE']);f.state.controls[0].value='milk';let count=0;
+ const evaluate=f.deps.evaluate;f.deps.evaluate=async(...args)=>{const criteria=args[0].questions.action.criteria;assert.equal(Object.hasOwn(criteria,'open:com.apple.Notes'),false);if(count++>0)assert.equal(Object.hasOwn(criteria,'type:c1'),false);return evaluate(...args);};
+ const r=await runComputerUse({goal:'Search milk'},f.deps,new AbortController().signal);
+ assert.equal(r.steps,1);const actions=f.calls.filter(x=>x.name==='computer_action');assert.equal(actions.length,1);assert.equal(actions[0].args.kind,'key');
 });
