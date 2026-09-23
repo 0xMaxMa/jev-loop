@@ -866,3 +866,19 @@ test('unsupported model choice is not a site blocking claim',async()=>{
  const f=fixture(['BLOCKED']);const r=await runBrowserUse({goal:'Inspect',scope},f.deps,new AbortController().signal);
  assert.equal(r.reason,'NO_SUPPORTED_ACTION');assert.equal(r.steps,0);
 });
+
+test('counter context and displayed values reach decision and field inference',async()=>{
+ const f=fixture(['TYPE_TEXT','DONE']),evaluate=f.deps.evaluate;
+ Object.assign(f.page.elements[0],{label:'Children',context:'Children aged 2–11: 2',value:'2',value_now:'2'});
+ let saw=false;
+ f.deps.evaluate=async(req,s)=>{const elements=(req.state.page as any).elements;assert.equal(elements[0].context,'Children aged 2–11: 2');assert.equal(elements[0].value_now,'2');assert.match(req.questions.operation.instructions,/confirmed click is not evidence/);saw=true;return evaluate(req,s);};
+ f.deps.resolveFieldText=async req=>{assert.equal(req.field.context,'Children aged 2–11: 2');assert.equal(req.goal,'Set 2 adults and 3 children');return {text:'3'};};
+ await runBrowserUse({goal:'Set 2 adults and 3 children',scope},f.deps,new AbortController().signal);assert(saw);
+ assert.equal(f.calls.find(c=>c.name==='page_type')?.args.text,'3');
+});
+test('stale cause survives transport and trace without private response text',async()=>{
+ const f=fixture(['CLICK']),call=f.deps.call;
+ f.deps.call=async(n,a,s)=>n==='page_click'?{error:'STALE_OBSERVATION',cause:'FORM_STATE_CHANGED',action_executed:false,private:'secret'}:call(n,a,s);
+ const r=await runBrowserUse({goal:'Inspect',scope,maxStaleRetries:0},f.deps,new AbortController().signal);
+ assert.equal(r.reason,'STALE_RETRY_BUDGET');assert(r.trace?.events.some(e=>e.cause==='FORM_STATE_CHANGED'));assert(!JSON.stringify(r.trace).includes('secret'));
+});

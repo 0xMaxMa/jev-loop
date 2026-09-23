@@ -11,6 +11,8 @@ export declare const TraceEvent: z.ZodObject<{
     model: z.ZodOptional<z.ZodString>;
     elapsedMs: z.ZodOptional<z.ZodNumber>;
     outcome: z.ZodOptional<z.ZodEnum<["confirmed", "unknown", "not_executed"]>>;
+    targetRef: z.ZodOptional<z.ZodString>;
+    cause: z.ZodOptional<z.ZodString>;
     reason: z.ZodOptional<z.ZodString>;
     status: z.ZodOptional<z.ZodEnum<["succeeded", "blocked", "cancelled", "failed", "needs_verification"]>>;
     steps: z.ZodOptional<z.ZodNumber>;
@@ -33,6 +35,8 @@ export declare const TraceEvent: z.ZodObject<{
     model?: string | undefined;
     elapsedMs?: number | undefined;
     outcome?: "unknown" | "confirmed" | "not_executed" | undefined;
+    targetRef?: string | undefined;
+    cause?: string | undefined;
     reason?: string | undefined;
     steps?: number | undefined;
     evaluations?: number | undefined;
@@ -53,6 +57,8 @@ export declare const TraceEvent: z.ZodObject<{
     model?: string | undefined;
     elapsedMs?: number | undefined;
     outcome?: "unknown" | "confirmed" | "not_executed" | undefined;
+    targetRef?: string | undefined;
+    cause?: string | undefined;
     reason?: string | undefined;
     steps?: number | undefined;
     evaluations?: number | undefined;

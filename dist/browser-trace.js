@@ -10,6 +10,8 @@ exports.TraceEvent = zod_1.z.object({
     operation: zod_1.z.string().regex(/^[A-Z_]{1,32}$/).optional(),
     model: zod_1.z.string().max(200).optional(), elapsedMs: zod_1.z.number().nonnegative().optional(),
     outcome: zod_1.z.enum(['confirmed', 'unknown', 'not_executed']).optional(),
+    targetRef: zod_1.z.string().max(100).optional(),
+    cause: zod_1.z.string().regex(/^[A-Z][A-Z_0-9]{2,80}$/).optional(),
     reason: zod_1.z.string().regex(/^[A-Z][A-Z_0-9]{2,80}$/).optional(),
     status: zod_1.z.enum(['succeeded', 'blocked', 'cancelled', 'failed', 'needs_verification']).optional(),
     steps: zod_1.z.number().int().nonnegative().optional(), evaluations: zod_1.z.number().int().nonnegative().optional(),

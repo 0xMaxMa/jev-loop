@@ -15,6 +15,9 @@ export declare const BrowserObservation: z.ZodObject<{
     elements: z.ZodArray<z.ZodObject<{
         ref: z.ZodString;
         label: z.ZodString;
+        context: z.ZodOptional<z.ZodString>;
+        value_now: z.ZodOptional<z.ZodString>;
+        value_text: z.ZodOptional<z.ZodString>;
         type: z.ZodEffects<z.ZodOptional<z.ZodNullable<z.ZodString>>, string | undefined, string | null | undefined>;
         tag: z.ZodString;
         role: z.ZodOptional<z.ZodString>;
@@ -58,6 +61,9 @@ export declare const BrowserObservation: z.ZodObject<{
             disabled: boolean;
         }[] | undefined;
         type?: string | undefined;
+        context?: string | undefined;
+        value_now?: string | undefined;
+        value_text?: string | undefined;
         role?: string | undefined;
         value_truncated?: boolean | undefined;
         checked?: string | boolean | undefined;
@@ -81,6 +87,9 @@ export declare const BrowserObservation: z.ZodObject<{
             disabled: boolean;
         }[] | undefined;
         type?: string | null | undefined;
+        context?: string | undefined;
+        value_now?: string | undefined;
+        value_text?: string | undefined;
         role?: string | undefined;
         value_truncated?: boolean | undefined;
         checked?: string | boolean | undefined;
@@ -137,6 +146,9 @@ export declare const BrowserObservation: z.ZodObject<{
             disabled: boolean;
         }[] | undefined;
         type?: string | undefined;
+        context?: string | undefined;
+        value_now?: string | undefined;
+        value_text?: string | undefined;
         role?: string | undefined;
         value_truncated?: boolean | undefined;
         checked?: string | boolean | undefined;
@@ -178,6 +190,9 @@ export declare const BrowserObservation: z.ZodObject<{
             disabled: boolean;
         }[] | undefined;
         type?: string | null | undefined;
+        context?: string | undefined;
+        value_now?: string | undefined;
+        value_text?: string | undefined;
         role?: string | undefined;
         value_truncated?: boolean | undefined;
         checked?: string | boolean | undefined;
