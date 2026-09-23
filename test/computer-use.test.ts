@@ -65,3 +65,13 @@ test('fresh satisfied field values progress without repeated typing or reopening
  const r=await runComputerUse({goal:'Search milk'},f.deps,new AbortController().signal);
  assert.equal(r.steps,1);const actions=f.calls.filter(x=>x.name==='computer_action');assert.equal(actions.length,1);assert.equal(actions[0].args.kind,'key');
 });
+test('shared interruption cancels reasoning but preserves an unknown desktop action',async()=>{
+ for(const inFlight of [false,true]){
+  const f=fixture(['type:c1']),control=new AbortController(),call=f.deps.call;f.deps.interruptSignal=control.signal;
+  if(inFlight)f.deps.call=async(n,a,s)=>{if(n==='computer_action'){control.abort();return {state:'unknown'};}return call(n,a,s);};
+  else f.deps.thinking=async()=>{control.abort();return new Promise(()=>{});};
+  const r=await runComputerUse({goal:'Type note'},f.deps,new AbortController().signal);
+  assert.equal(r.reason,inFlight?'OUTCOME_UNKNOWN':'REVISION_SUPERSEDED');
+  if(!inFlight)assert(!f.calls.some(c=>c.name==='computer_action'));
+ }
+});

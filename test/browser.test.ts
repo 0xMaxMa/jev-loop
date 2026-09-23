@@ -882,3 +882,23 @@ test('stale cause survives transport and trace without private response text',as
  const r=await runBrowserUse({goal:'Inspect',scope,maxStaleRetries:0},f.deps,new AbortController().signal);
  assert.equal(r.reason,'STALE_RETRY_BUDGET');assert(r.trace?.events.some(e=>e.cause==='FORM_STATE_CHANGED'));assert(!JSON.stringify(r.trace).includes('secret'));
 });
+
+test('interruption during field reasoning discards obsolete text without typing',async()=>{
+ const f=fixture(['TYPE_TEXT']);const control=new AbortController();f.deps.interruptSignal=control.signal;
+ f.deps.resolveFieldText=async()=>{control.abort();return {text:'obsolete'};};
+ const r=await runBrowserUse({goal:'Fill name',scope},f.deps,new AbortController().signal);
+ assert.equal(r.reason,'REVISION_SUPERSEDED');assert.equal(r.status,'cancelled');assert(!f.calls.some(c=>c.name==='page_type'));
+});
+test('interruption during a dispatched action waits for its receipt and never repeats it',async()=>{
+ for(const unknown of [false,true]){
+ const f=fixture(['CLICK','CLICK']);const control=new AbortController(),call=f.deps.call;f.deps.interruptSignal=control.signal;
+ f.deps.call=async(n,a,s)=>{if(n==='page_click'){control.abort();return unknown?{state:'unknown'}:call(n,a,s);}return call(n,a,s);};
+ const r=await runBrowserUse({goal:'Inspect',scope},f.deps,new AbortController().signal);
+ assert.equal(r.reason,unknown?'OUTCOME_UNKNOWN':'REVISION_SUPERSEDED');assert.equal(r.lastAction?.outcome,unknown?'unknown':'confirmed');
+ }
+});
+test('interruption does not wait for an inference provider ignoring cancellation',async()=>{
+ const f=fixture(['CLICK']);const control=new AbortController();f.deps.interruptSignal=control.signal;
+ f.deps.evaluate=async()=>{control.abort();return new Promise(()=>{});};
+ const r=await runBrowserUse({goal:'Inspect',scope},f.deps,new AbortController().signal);assert.equal(r.reason,'REVISION_SUPERSEDED');assert.equal(r.steps,0);
+});

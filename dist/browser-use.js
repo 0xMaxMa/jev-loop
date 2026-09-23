@@ -4,6 +4,7 @@ exports.BrowserObservation = exports.BrowserUseInputError = exports.BROWSER_USE_
 exports.decisionQuestions = decisionQuestions;
 exports.runBrowserUse = runBrowserUse;
 exports.mcpBrowserTransport = mcpBrowserTransport;
+const interrupt_js_1 = require("./interrupt.js");
 const jev_loop_1 = require("@0xmaxma/jev-loop");
 const node_crypto_1 = require("node:crypto");
 const zod_1 = require("zod");
@@ -374,6 +375,7 @@ async function runBrowserUse(raw, deps, signal) {
     }
     const renew = () => call("browser_task_renew", { operation_id: (0, node_crypto_1.randomUUID)() }, true);
     try {
+        (0, interrupt_js_1.checkInterruption)(deps.interruptSignal);
         const acquired = await call("browser_task_acquire", { operation_id: (0, node_crypto_1.randomUUID)() }, true);
         const parsed = zod_1.z
             .object({
@@ -382,6 +384,7 @@ async function runBrowserUse(raw, deps, signal) {
         })
             .parse(acquired);
         lease = parsed.lease_token;
+        (0, interrupt_js_1.checkInterruption)(deps.interruptSignal);
         if (input.startUrl) {
             const operationId = (0, node_crypto_1.randomUUID)();
             lastAction = { operationId, operation: "NAVIGATE", outcome: "unknown" };
@@ -434,10 +437,11 @@ async function runBrowserUse(raw, deps, signal) {
             return result("blocked", "PAGE_CONTENT_UNAVAILABLE");
         return await (0, jev_loop_1.runLoop)({
             signal: controller.signal, maxCycles: input.maxEvaluations + 1, stageTimeoutMs: input.timeoutMs + 1000,
-            thinking: deps.resolveFieldText ? (request, signal) => deps.resolveFieldText(request, signal) : undefined,
+            thinking: deps.resolveFieldText ? (request, signal) => (0, interrupt_js_1.interruptible)(s => deps.resolveFieldText(request, s), signal, deps.interruptSignal) : undefined,
             thinkingTimeoutMs: 15000, maxThinkingCalls: input.maxTextCalls,
             observe: async () => { check(); await renew(); return page; },
             decide: async () => {
+                (0, interrupt_js_1.checkInterruption)(deps.interruptSignal);
                 if (!page)
                     throw Error("OBSERVATION_UNAVAILABLE");
                 check();
@@ -479,7 +483,7 @@ async function runBrowserUse(raw, deps, signal) {
                 evaluations++;
                 lastEvaluation = { requestId: request.requestId };
                 progress({ phase: "evaluating", requestId: request.requestId });
-                const answer = await bounded((s) => deps.evaluate(request, s), 15000);
+                const answer = await bounded((s) => (0, interrupt_js_1.interruptible)(child => deps.evaluate(request, child), s, deps.interruptSignal), 15000);
                 check();
                 if (!answer ||
                     typeof answer.model !== "string" ||
@@ -507,6 +511,7 @@ async function runBrowserUse(raw, deps, signal) {
                 return { action: { op, validated, targets, before, request } };
             },
             execute: async ({ op, validated, targets, before, request }, loop) => {
+                (0, interrupt_js_1.checkInterruption)(deps.interruptSignal);
                 if (!page)
                     throw Error("OBSERVATION_UNAVAILABLE");
                 if (op.confidence < input.operationConfidence)
@@ -526,6 +531,7 @@ async function runBrowserUse(raw, deps, signal) {
                         .boolean()
                         .parse(await bounded((s) => deps.verify(page, s), 15000));
                     await renew();
+                    (0, interrupt_js_1.checkInterruption)(deps.interruptSignal);
                     check();
                     return result(verified ? "succeeded" : "needs_verification", verified ? "VERIFIED" : "VERIFICATION_FAILED");
                 }
@@ -627,6 +633,7 @@ async function runBrowserUse(raw, deps, signal) {
                         actionContext.text = args.text;
                     if (typeof args.option_ref === "string")
                         actionContext.option = args.option_ref;
+                    (0, interrupt_js_1.checkInterruption)(deps.interruptSignal);
                     const actionPage = page;
                     const actionTarget = page.elements.find(e => e.ref === args.ref);
                     const operationId = (0, node_crypto_1.randomUUID)();
@@ -710,7 +717,7 @@ async function runBrowserUse(raw, deps, signal) {
     }
     catch (error) {
         const code = controller.signal.aborted ? (timedOut ? "TASK_DEADLINE" : "TASK_CANCELLED") : error instanceof zod_1.z.ZodError ? "INVALID_CONTRACT" : errorCode(error);
-        return result(signal.aborted
+        return result(signal.aborted || code === "REVISION_SUPERSEDED"
             ? "cancelled"
             : (code === "TASK_DEADLINE" || code === "STALE_RETRY_BUDGET")
                 ? "blocked"

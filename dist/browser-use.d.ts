@@ -255,6 +255,7 @@ export type FieldTextRequest = {
 export type BrowserUseDependencies = {
     /** Private host sink; events contain no page text, labels or field values. */
     trace?: (event: BrowserTraceEvent) => void;
+    interruptSignal?: AbortSignal;
     call: BrowserToolCall;
     evaluate: (request: EvaluationRequest, signal: AbortSignal) => Promise<EvaluationResponse>;
     /** Host-owned Thinking implementation; no provider credentials live in this adapter. */
