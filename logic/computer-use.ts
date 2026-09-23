@@ -6,7 +6,7 @@ import { runLoop } from '@0xmaxma/jev-loop';
 
 export const COMPUTER_USE_CONTRACT_VERSION = 1;
 const Control = z.object({ref:z.string().min(1).max(100),label:z.string().max(500),role:z.string().max(100),value:z.string().max(2000).optional(),actions:z.array(z.enum(['press','type'])),sensitive:z.boolean().optional()});
-export const ComputerObservation = z.object({generation:z.string().min(1),application:z.string(),controls:z.array(Control).max(150),truncated:z.boolean(),platform:z.object({os:z.string(),osVersion:z.string(),appVersion:z.string().optional()}).optional(),apps:z.array(z.object({id:z.string(),name:z.string()})).max(100)});
+export const ComputerObservation = z.object({generation:z.string().min(1),application:z.string(),controls:z.array(Control).max(150),windowTitle:z.string().max(500).optional(),text:z.array(z.string().max(300)).max(80).optional(),truncated:z.boolean(),platform:z.object({os:z.string(),osVersion:z.string(),appVersion:z.string().optional()}).optional(),apps:z.array(z.object({id:z.string(),name:z.string()})).max(100)});
 export type ComputerState = z.infer<typeof ComputerObservation>;
 export interface GoalRevision { revision:number; goal:string }
 export interface ComputerUseDependencies {
@@ -62,7 +62,7 @@ export async function runComputerUse(raw:unknown,deps:ComputerUseDependencies,si
    execute:async(d,ctx)=>{
     check();update();if(goal.revision!==d.revision)return;
     if(d.action==='WAIT'){await new Promise<void>((resolve,reject)=>{const stop=()=>{clearTimeout(t);reject(Error('CANCELLED'));};const t=setTimeout(()=>{runSignal.removeEventListener('abort',stop);resolve();},150);runSignal.addEventListener('abort',stop,{once:true});});return;}
-    if(d.action==='BLOCKED')return result('blocked','MODEL_BLOCKED');
+    if(d.action==='BLOCKED')return result('blocked','NO_SUPPORTED_ACTION');
     if(d.action==='DONE'){
      last=ComputerObservation.parse(await call('computer_observe'));check();update();if(goal.revision!==d.revision)return;
      if(last.truncated||!deps.verify)return result('needs_verification','COMPLETION_CANDIDATE');

@@ -26,6 +26,8 @@ export declare const ComputerObservation: z.ZodObject<{
         value?: string | undefined;
         sensitive?: boolean | undefined;
     }>, "many">;
+    windowTitle: z.ZodOptional<z.ZodString>;
+    text: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
     truncated: z.ZodBoolean;
     platform: z.ZodOptional<z.ZodObject<{
         os: z.ZodString;
@@ -66,6 +68,8 @@ export declare const ComputerObservation: z.ZodObject<{
         id: string;
         name: string;
     }[];
+    text?: string[] | undefined;
+    windowTitle?: string | undefined;
     platform?: {
         os: string;
         osVersion: string;
@@ -87,6 +91,8 @@ export declare const ComputerObservation: z.ZodObject<{
         id: string;
         name: string;
     }[];
+    text?: string[] | undefined;
+    windowTitle?: string | undefined;
     platform?: {
         os: string;
         osVersion: string;

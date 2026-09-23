@@ -229,3 +229,7 @@ Gmail, Google Flights, Apple Notes, macOS, and gridworld. These exercise basic
 control patterns. They are not live-trained navigation guides and do not establish
 that arbitrary tasks on those products will succeed. A pack can improve action
 selection immediately; broad proficiency requires observed, verified experience.
+
+### Desktop observation evidence
+
+Computer Use observations include a bounded `windowTitle` and `text` list from accessibility static text/heading nodes, in addition to interactive controls. These fields remain untrusted app content and reach both decisions and independent verification. `NO_SUPPORTED_ACTION` means the decision engine chose no supported next step; it is not a provider or account refusal. A partial observation still cannot prove goal completion.

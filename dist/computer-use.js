@@ -8,7 +8,7 @@ const zod_1 = require("zod");
 const jev_loop_1 = require("@0xmaxma/jev-loop");
 exports.COMPUTER_USE_CONTRACT_VERSION = 1;
 const Control = zod_1.z.object({ ref: zod_1.z.string().min(1).max(100), label: zod_1.z.string().max(500), role: zod_1.z.string().max(100), value: zod_1.z.string().max(2000).optional(), actions: zod_1.z.array(zod_1.z.enum(['press', 'type'])), sensitive: zod_1.z.boolean().optional() });
-exports.ComputerObservation = zod_1.z.object({ generation: zod_1.z.string().min(1), application: zod_1.z.string(), controls: zod_1.z.array(Control).max(150), truncated: zod_1.z.boolean(), platform: zod_1.z.object({ os: zod_1.z.string(), osVersion: zod_1.z.string(), appVersion: zod_1.z.string().optional() }).optional(), apps: zod_1.z.array(zod_1.z.object({ id: zod_1.z.string(), name: zod_1.z.string() })).max(100) });
+exports.ComputerObservation = zod_1.z.object({ generation: zod_1.z.string().min(1), application: zod_1.z.string(), controls: zod_1.z.array(Control).max(150), windowTitle: zod_1.z.string().max(500).optional(), text: zod_1.z.array(zod_1.z.string().max(300)).max(80).optional(), truncated: zod_1.z.boolean(), platform: zod_1.z.object({ os: zod_1.z.string(), osVersion: zod_1.z.string(), appVersion: zod_1.z.string().optional() }).optional(), apps: zod_1.z.array(zod_1.z.object({ id: zod_1.z.string(), name: zod_1.z.string() })).max(100) });
 const Input = zod_1.z.object({ goal: zod_1.z.string().min(1).max(16000), revision: zod_1.z.number().int().positive().default(1), maxSteps: zod_1.z.number().int().min(1).max(100).default(30), timeoutMs: zod_1.z.number().int().min(1).max(600000).default(120000) }).strict();
 const Choice = zod_1.z.object({ choice: zod_1.z.string(), confidence: zod_1.z.number().min(0).max(1), probabilities: zod_1.z.record(zod_1.z.number().min(0).max(1)) });
 async function runComputerUse(raw, deps, signal) {
@@ -95,7 +95,7 @@ async function runComputerUse(raw, deps, signal) {
                     return;
                 }
                 if (d.action === 'BLOCKED')
-                    return result('blocked', 'MODEL_BLOCKED');
+                    return result('blocked', 'NO_SUPPORTED_ACTION');
                 if (d.action === 'DONE') {
                     last = exports.ComputerObservation.parse(await call('computer_observe'));
                     check();

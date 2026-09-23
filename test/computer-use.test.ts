@@ -49,3 +49,12 @@ test('experience hints reach Jev and observed effects require independent comple
   assert(hintSeen);assert.deepEqual(outcomes,verified?['effect-only','verified-success']:['effect-only']);
  }
 });
+
+test('static app content and window title survive observation parsing and reach verification',async()=>{
+ const f=fixture(['DONE']);Object.assign(f.state,{windowTitle:'September 2026',text:['23','Team meeting 10:00']});
+ f.deps.verify=async state=>{assert.equal(state.windowTitle,'September 2026');assert.deepEqual(state.text,['23','Team meeting 10:00']);return true;};
+ const r=await runComputerUse({goal:'Read this month'},f.deps,new AbortController().signal);assert.equal(r.status,'succeeded');
+});
+test('BLOCKED choice means no supported action, not an account or provider refusal',async()=>{
+ const f=fixture(['BLOCKED']);const r=await runComputerUse({goal:'Inspect'},f.deps,new AbortController().signal);assert.equal(r.reason,'NO_SUPPORTED_ACTION');assert.equal(r.steps,0);
+});
