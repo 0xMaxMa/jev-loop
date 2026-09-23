@@ -76,7 +76,7 @@ Node 22+. Run `npm ci`, `npm run build`, and `npm test`. Browser source is in `l
 
 Tests cover cancellation, budgets, input validation, scoped actions, uncertain mutations, Thinking, independent stdio clients and browser decisions. Synthetic fixtures do not prove real-site success or latency. Never replay an uncertain mutation as crash recovery.
 
-Browser Use retries `STALE_OBSERVATION` from read-only observations within the shared stale-recovery budget, including initial navigation and post-action reads. A confirmed navigation/click is never repeated to recover its observation. Persistent stale reads stop as `STALE_RETRY_BUDGET`; consent and other errors are not retried by this path.
+Browser Use retries `STALE_OBSERVATION` from read-only observations within the consecutive stale-recovery budget, including initial navigation and post-action reads. A confirmed navigation/click is never repeated to recover its observation. Persistent stale reads stop as `STALE_RETRY_BUDGET`; consent and other errors are not retried by this path.
 
 ### Dense browser observations
 
@@ -131,105 +131,41 @@ browser MCP servers. Import `/browser-use`, `runBrowserUse` and
 name are removed, with no aliases. Deploy matching consumers and package versions
 together. Computer Use uses `/computer-use` and `runComputerUse`.
 
-## Experience Library and Learning Module
-
-Experience Packs are compact, versioned JSON data grouped by `web/`, `app/`,
-`os/`, and `game/`. They suggest semantic actions from observed control states;
-no pack executes code, stores coordinates, overrides consent or replays a script.
-Core/Logic handles ordinary control flow without a mandatory general pack.
-
-```mermaid
-flowchart TD
-  Agent[Claude Code / Codex / Agent] --> MCP[Jev Loop MCP]
-  MCP --> Core[Jev Loop core]
-  Core --> Logic[Browser Use / Computer Use / game Logic]
-  Logic --> Tools[MCP tools]
-  Core --> Think[Thinking Module]
-  Logic <--> Library[Experience Library]
-  Library --> Registry[Trusted Experience Pack registry]
-  Logic --> Learning[Learning Module]
-  Learning --> Library
-  style Core fill:#9333ea,color:#fff,stroke:#581c87,stroke-width:4px
-```
-
-The Learning Module shares validation, deduplication, scoring, expiry and storage.
-Knowledge remains scoped by Logic, actual target identity/version/path, and the
-host's authenticated user scope. A browser experience cannot become a game or
-OS experience. The game category and gridworld fixture are supported; this does
-not supply a native game controller or packs for arbitrary commercial games.
-
-```js
-const {ExperienceLibrary} = require('@0xmaxma/jev-loop/experience');
-const experience = new ExperienceLibrary({
-  directory: '/absolute/private/experience',
-  scope: authenticatedPrincipalAndConversation,
-});
-// Add `experience` to runBrowserUse or runComputerUse dependencies.
-```
-
-Browser Use derives the origin/path from a fresh observation. Computer Use derives
-app identity and optional OS/app version from the tool server's `platform` metadata
-(`os`, `osVersion`, optional `appVersion`, numeric x.y.z). A game integration supplies
-its observed game ID/version and semantic controls to `select()`/`record()`.
-Neither model text nor page content can choose a registry URL or local directory.
-
-By default, the library downloads the registry index from
-`https://raw.githubusercontent.com/0xMaxMa/jev-loop/main/experience-packs/`, selects
-the newest compatible version per pack, verifies SHA-256 and strict schemas, then
-caches it. It never calls npm or executes downloaded files. Registry URLs are
-operator configuration; HTTPS is required except loopback development. Redirects
-are rejected. Requests contain no provider credentials, chat, page content or
-private experience. Registry access can reveal which public pack was requested.
-Use an internal registry or `autoDownload:false` when outbound access is unwanted.
-Checksums detect corruption; trust still rests on the configured registry owner.
-
-`enabled:false` disables reads/writes/downloads. `autoDownload:false` uses existing
-cache and local experience only. Defaults: index refresh 1h, each download timeout
-1.5s, 50 cached packs, 500 local records, 90-day record lifetime, at most five hints
-and 2KiB of hints. Options are validated with exported `ExperienceConfig`. Registry
-failure falls back to cached/local knowledge and never blocks a user action by
-requiring a download. Cold downloads may add their bounded timeout to a decision.
-
-### Structured learning, not prose memory
-
-An experience contains only `when:{role,state}`, `action`, and `expected`, plus a
-short ID in distributed packs. Local records add bounded success/failure/effect
-counters, timestamps and hashed evidence/context IDs. They retain no labels,
-field values, URLs, conversation text, screenshots or provider keys.
-
-A confirmed dispatch is not learning success. Browser/Computer Use records a
-specific observed effect (for example an input actually changing to the requested
-value). It promotes those records only after independent whole-goal verification.
-Three distinct verified runs activate a local hint; failures lower confidence and
-can suppress a matching pack hint. Unknown outcomes and infrastructure failures
-are neutral. Integrations may record a `verified-failure` only with independent
-negative evidence, not simply because a request timed out. Current built-in loops
-automatically collect demonstrated positive effects; they do not label all earlier
-actions as failures when a later step fails.
-
-For parent verification after execution ends, construct the library with the
-host-owned `runId`; effects are staged durably. Call `verifyRun(runId)` only **after**
-committing independent completion evidence for that same authenticated task. It is
-idempotent and promotes each experience once per run. Missing verification leaves
-only neutral effects. Local data is never uploaded or merged into public packs.
-The host can remove its private library directory to reset learning.
-
-### Pre-training and publishing packs
-
-`trainExperiencePack` from `/experience-training` accepts structured candidate
-records and a host-owned `executeAndVerify` function. Each accepted record must
-pass at least three trials returning the boolean `true`; failed candidates are
-excluded. The verifier must actually test the expected effect. Record `validation`
-as `fixture` for synthetic tests, or `live` only when verified in the real target.
-Publish validated JSON, an exact compatible identity/version/tool set, and its
-SHA-256 in the registry index. There are no install hooks or free-text instructions.
-
-`npm run build:packs` reproducibly creates five **fixture-validated starter packs**:
-Gmail, Google Flights, Apple Notes, macOS, and gridworld. These exercise basic
-control patterns. They are not live-trained navigation guides and do not establish
-that arbitrary tasks on those products will succeed. A pack can improve action
-selection immediately; broad proficiency requires observed, verified experience.
-
 ### Desktop observation evidence
 
 Computer Use observations include a bounded `windowTitle` and `text` list from accessibility static text/heading nodes, in addition to interactive controls. These fields remain untrusted app content and reach both decisions and independent verification. `NO_SUPPORTED_ACTION` means the decision engine chose no supported next step; it is not a provider or account refusal. A partial observation still cannot prove goal completion.
+
+## Basic execution and trace (0.4)
+
+Browser and Computer Use decide from the authorized goal, current observations
+and supported actions. Experience packs, learning stores, registry downloads,
+training APIs and their package exports have been removed. Upgrade consumers
+with this version; remove the obsolete `gateway.jev.experience` configuration
+before upgrading Gateway. Existing private cache files are inert and are not
+read or automatically deleted.
+
+Browser Use retains up to ten recent actions in memory, including the observed
+target, entered value and confirmed/not-executed/unknown outcome. This context
+reaches the authorized decision and field-value inference providers, not the
+persisted structural trace. Field labels normalize whitespace and Unicode, but
+ambiguous labels still require a handoff. Missing values are not invented.
+
+`maxStaleRetries` bounds consecutive recovery attempts. Actual observed progress
+resets that counter; total retries remain visible in the result. Evaluation,
+action and time budgets still cap the task. Rejected stale decisions are discarded;
+uncertain mutations are never retried. `NO_SUPPORTED_ACTION` means the chooser
+could not select a supported next step, not that the website blocked automation.
+
+An optional synchronous `trace(event)` host callback and the final result's
+`trace` expose ordered structural events: decisions, dispatch, action outcome,
+observed effect, field resolution, recovery and terminal verification. Events
+carry request/operation IDs for host correlation, but no page text, target labels,
+URLs or entered values. Confirmed dispatch is distinct from observed effect and
+independently verified whole-goal success. A missing effect is not proof of failure.
+Traces cap at 1024 events; `truncated` and `sinkFailed` explicitly flag limitations.
+Hosts persist traces privately under task authorization; they must still use the
+transport's durable pre-mutation checkpoint for crash safety. Telemetry is not an
+execution fence. No trace is uploaded and no experience registry is contacted.
+
+Real-site acceptance still requires a consented browser and independently checked
+results. Unit fixtures alone do not establish Google Flights success or latency.

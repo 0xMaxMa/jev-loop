@@ -1,4 +1,3 @@
-import type { ExperienceHooks } from './experience-schema.js';
 import { z } from 'zod';
 export declare const COMPUTER_USE_CONTRACT_VERSION = 1;
 export declare const ComputerObservation: z.ZodObject<{
@@ -12,16 +11,16 @@ export declare const ComputerObservation: z.ZodObject<{
         actions: z.ZodArray<z.ZodEnum<["press", "type"]>, "many">;
         sensitive: z.ZodOptional<z.ZodBoolean>;
     }, "strip", z.ZodTypeAny, {
-        role: string;
         ref: string;
         label: string;
+        role: string;
         actions: ("type" | "press")[];
         value?: string | undefined;
         sensitive?: boolean | undefined;
     }, {
-        role: string;
         ref: string;
         label: string;
+        role: string;
         actions: ("type" | "press")[];
         value?: string | undefined;
         sensitive?: boolean | undefined;
@@ -53,17 +52,17 @@ export declare const ComputerObservation: z.ZodObject<{
         name: string;
     }>, "many">;
 }, "strip", z.ZodTypeAny, {
+    generation: string;
+    truncated: boolean;
     application: string;
     controls: {
-        role: string;
         ref: string;
         label: string;
+        role: string;
         actions: ("type" | "press")[];
         value?: string | undefined;
         sensitive?: boolean | undefined;
     }[];
-    generation: string;
-    truncated: boolean;
     apps: {
         id: string;
         name: string;
@@ -76,17 +75,17 @@ export declare const ComputerObservation: z.ZodObject<{
         appVersion?: string | undefined;
     } | undefined;
 }, {
+    generation: string;
+    truncated: boolean;
     application: string;
     controls: {
-        role: string;
         ref: string;
         label: string;
+        role: string;
         actions: ("type" | "press")[];
         value?: string | undefined;
         sensitive?: boolean | undefined;
     }[];
-    generation: string;
-    truncated: boolean;
     apps: {
         id: string;
         name: string;
@@ -105,7 +104,6 @@ export interface GoalRevision {
     goal: string;
 }
 export interface ComputerUseDependencies {
-    experience?: ExperienceHooks;
     call(name: string, args: Record<string, unknown>, signal: AbortSignal): Promise<unknown>;
     evaluate(request: {
         state: unknown;

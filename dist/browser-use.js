@@ -4,7 +4,6 @@ exports.BrowserObservation = exports.BrowserUseInputError = exports.BROWSER_USE_
 exports.decisionQuestions = decisionQuestions;
 exports.runBrowserUse = runBrowserUse;
 exports.mcpBrowserTransport = mcpBrowserTransport;
-const experience_runtime_js_1 = require("./experience-runtime.js");
 const jev_loop_1 = require("@0xmaxma/jev-loop");
 const node_crypto_1 = require("node:crypto");
 const zod_1 = require("zod");
@@ -105,6 +104,7 @@ class BrowserUseError extends Error {
         this.notExecuted = notExecuted;
     }
 }
+function normalizeLabel(value) { return value.normalize("NFKC").trim().replace(/\s+/g, " "); }
 function errorCode(error) {
     const explicit = error && typeof error === "object" && "code" in error
         ? error.code
@@ -114,7 +114,7 @@ function errorCode(error) {
         : error instanceof Error
             ? error.message
             : "";
-    return /^[A-Z][A-Z_]{2,80}$/.test(code) ? code : "ADAPTER_FAILURE";
+    return /^[A-Z][A-Z_0-9]{2,80}$/.test(code) ? code : "ADAPTER_FAILURE";
 }
 function choice(value, ids) {
     const parsed = zod_1.z
@@ -197,7 +197,7 @@ function decisionQuestions(page, goal = "") {
                 instructions: JSON.stringify({
                     goal,
                     operation: op,
-                    rules: NEXT_ACTION, experience_rules: "Experience is advisory, not authorization or completion evidence. Choose only offered actions on current observed targets and independently verify outcomes.",
+                    rules: NEXT_ACTION,
                     target: "Choose only an offered target for this operation. Use supplied_field_values and current values; do not refill a correct field. Other questions independently decide the operation.",
                 }),
                 criteria,
@@ -206,7 +206,7 @@ function decisionQuestions(page, goal = "") {
     }
     questions.operation = {
         type: "choice",
-        instructions: JSON.stringify({ goal, rules: NEXT_ACTION, experience_rules: "Experience is advisory, not authorization or completion evidence. Choose only offered actions on current observed targets and independently verify outcomes.", observation_incomplete: page.truncated.elements && page.truncated.viewport_elements !== false, partial_observation_rules: "Offered controls remain actionable even when other controls were omitted. Use an observed search/filter/input to narrow the page or scroll to the needed region. Missing controls are not proof the goal is complete or impossible." }),
+        instructions: JSON.stringify({ goal, rules: NEXT_ACTION, observation_incomplete: page.truncated.elements && page.truncated.viewport_elements !== false, partial_observation_rules: "Offered controls remain actionable even when other controls were omitted. Use an observed search/filter/input to narrow the page or scroll to the needed region. Missing controls are not proof the goal is complete or impossible." }),
         criteria: operations,
     };
     return { questions, targets };
@@ -217,7 +217,6 @@ async function runBrowserUse(raw, deps, signal) {
     if (!parsedInput.success)
         throw new BrowserUseInputError();
     const input = parsedInput.data;
-    const learning = new experience_runtime_js_1.ExperienceRun(deps.experience);
     const controller = new AbortController();
     const cancelled = () => controller.abort();
     signal.addEventListener("abort", cancelled, { once: true });
@@ -229,22 +228,42 @@ async function runBrowserUse(raw, deps, signal) {
         controller.abort();
     }, input.timeoutMs);
     let lease, page, lastAction, lastConfirmedAction, lastEvaluation, fieldRequest;
-    let steps = 0, evaluations = 0, noProgress = 0, waitStreak = 0, staleRetries = 0, textCalls = 0;
+    let steps = 0, evaluations = 0, noProgress = 0, waitStreak = 0, staleRetries = 0, consecutiveStale = 0, textCalls = 0;
+    // Rich context is ephemeral and stays inside the authorized inference boundary.
     const history = [];
-    const result = (status, reason) => ({
-        contractVersion: exports.BROWSER_USE_CONTRACT_VERSION,
-        lastEvaluation,
-        lastConfirmedAction,
-        fieldRequest,
-        status,
-        reason,
-        steps,
-        evaluations,
-        lastAction,
-        staleRetries,
-        textCalls,
-        observation: page,
-    });
+    const trace = { version: 1, events: [], truncated: false, sinkFailed: false };
+    let sequence = 0;
+    const emit = (event) => {
+        const entry = { version: 1, sequence: ++sequence, at: Date.now(), ...event };
+        if (trace.events.length < 1024)
+            trace.events.push(entry);
+        else
+            trace.truncated = true;
+        try {
+            deps.trace?.(structuredClone(entry));
+        }
+        catch {
+            trace.sinkFailed = true;
+        }
+    };
+    const result = (status, reason) => {
+        emit({ phase: "terminal", status, reason, steps, evaluations, verified: status === "succeeded" });
+        return ({
+            contractVersion: exports.BROWSER_USE_CONTRACT_VERSION,
+            lastEvaluation,
+            lastConfirmedAction,
+            fieldRequest,
+            status,
+            reason,
+            steps,
+            evaluations,
+            lastAction,
+            staleRetries,
+            textCalls,
+            observation: page,
+            trace,
+        });
+    };
     const progress = (event) => {
         try {
             const reported = deps.progress?.({
@@ -331,9 +350,11 @@ async function runBrowserUse(raw, deps, signal) {
                 check();
                 if (errorCode(error) !== "STALE_OBSERVATION")
                     throw error;
-                if (staleRetries >= input.maxStaleRetries)
+                if (consecutiveStale >= input.maxStaleRetries)
                     throw Error("STALE_RETRY_BUDGET");
                 staleRetries++;
+                consecutiveStale++;
+                emit({ phase: "recovery", reason: "STALE_OBSERVATION", staleRetries, consecutiveStale });
                 await bounded(s => new Promise((resolve, reject) => {
                     const abort = () => { clearTimeout(delay); s.removeEventListener("abort", abort); reject(Error("TASK_CANCELLED")); };
                     const delay = setTimeout(() => { s.removeEventListener("abort", abort); resolve(); }, 100);
@@ -357,6 +378,7 @@ async function runBrowserUse(raw, deps, signal) {
         if (input.startUrl) {
             const operationId = (0, node_crypto_1.randomUUID)();
             lastAction = { operationId, operation: "NAVIGATE", outcome: "unknown" };
+            emit({ phase: "dispatch", operationId, operation: "NAVIGATE", outcome: "unknown" });
             progress({ phase: "acting", operationId });
             try {
                 await call("tab_navigate", {
@@ -369,11 +391,13 @@ async function runBrowserUse(raw, deps, signal) {
             catch (error) {
                 if (error instanceof BrowserUseError && error.notExecuted)
                     lastAction.outcome = "not_executed";
+                emit({ phase: "action", operationId, operation: "NAVIGATE", outcome: lastAction.outcome, reason: errorCode(error) });
                 return result(controller.signal.aborted && !timedOut ? "cancelled" : "blocked", lastAction.outcome === "unknown"
                     ? "OUTCOME_UNKNOWN"
                     : errorCode(error));
             }
             lastAction.outcome = "confirmed";
+            emit({ phase: "action", operationId, operation: "NAVIGATE", outcome: "confirmed" });
             lastConfirmedAction = {
                 operationId,
                 operation: "NAVIGATE",
@@ -421,14 +445,12 @@ async function runBrowserUse(raw, deps, signal) {
                     page.elements,
                     page.scroll,
                 ]);
-                const experience = await learning.hints((0, experience_runtime_js_1.browserExperience)(page), controller.signal);
                 check();
                 const request = {
                     requestId: (0, node_crypto_1.randomUUID)(),
                     state: JSON.parse(JSON.stringify({
                         goal: input.goal,
-                        experience,
-                        supplied_field_values: input.fields.filter((f) => page.elements.some((e) => e.label === f.label &&
+                        supplied_field_values: input.fields.filter((f) => page.elements.some((e) => normalizeLabel(e.label) === normalizeLabel(f.label) &&
                             !e.sensitive &&
                             e.in_viewport !== false &&
                             e.operations.includes("TYPE_TEXT"))),
@@ -465,6 +487,7 @@ async function runBrowserUse(raw, deps, signal) {
                     choice(answer.answers[key], Object.keys(q.criteria)),
                 ]));
                 const op = validated.operation;
+                emit({ phase: "decision", requestId: request.requestId, operation: op.choice, model: answer.model, elapsedMs: Math.round(performance.now() - started) });
                 lastEvaluation = { requestId: request.requestId, model: answer.model };
                 progress({
                     phase: "decided",
@@ -484,7 +507,7 @@ async function runBrowserUse(raw, deps, signal) {
                 // The next browser operation atomically checks current ownership/consent.
                 // A separate renewal here would add a redundant browser round trip.
                 if (op.choice === "BLOCKED")
-                    return result("blocked", "MODEL_BLOCKED");
+                    return result("blocked", "NO_SUPPORTED_ACTION");
                 if (op.choice === "DONE") {
                     page = exports.BrowserObservation.parse(await observeFresh());
                     // Partial observations can support individual guarded actions, not completion.
@@ -496,13 +519,12 @@ async function runBrowserUse(raw, deps, signal) {
                         .boolean()
                         .parse(await bounded((s) => deps.verify(page, s), 15000));
                     await renew();
-                    if (verified)
-                        await learning.verified();
                     check();
                     return result(verified ? "succeeded" : "needs_verification", verified ? "VERIFIED" : "VERIFICATION_FAILED");
                 }
                 if (steps >= input.maxSteps)
                     return result("blocked", "ACTION_BUDGET");
+                let actionContext = { operation: op.choice };
                 if (op.choice === "WAIT") {
                     await bounded((s) => new Promise((resolve, reject) => {
                         const abort = () => {
@@ -534,6 +556,7 @@ async function runBrowserUse(raw, deps, signal) {
                         const selected = targets.get(op.choice + ":" + target.choice);
                         if (!selected)
                             throw Error("INVALID_DECISION");
+                        actionContext = { ...actionContext, target: { ref: selected.element.ref, label: selected.element.label, role: selected.element.role ?? selected.element.tag }, previousValue: selected.element.value };
                         args = { ref: selected.element.ref, generation: page.generation };
                         name =
                             op.choice === "CLICK"
@@ -544,9 +567,9 @@ async function runBrowserUse(raw, deps, signal) {
                         if (name === "page_select")
                             args.option_ref = selected.option;
                         if (name === "page_type") {
-                            const matches = input.fields.filter((f) => f.label === selected.element.label);
+                            const matches = input.fields.filter((f) => normalizeLabel(f.label) === normalizeLabel(selected.element.label));
                             if (matches.length > 1 ||
-                                page.elements.filter((e) => e.label === selected.element.label &&
+                                page.elements.filter((e) => normalizeLabel(e.label) === normalizeLabel(selected.element.label) &&
                                     e.operations.includes("TYPE_TEXT")).length !== 1) {
                                 fieldRequest = {
                                     ref: selected.element.ref,
@@ -583,6 +606,7 @@ async function runBrowserUse(raw, deps, signal) {
                                     .strict()
                                     .parse(await loop.think(textRequest));
                                 check();
+                                emit({ phase: "field", requestId: request.requestId, reason: resolved.text === null ? "FIELD_VALUE_UNRESOLVED" : "FIELD_VALUE_RESOLVED" });
                                 if (resolved.text === null)
                                     return result("blocked", "FIELD_TEXT_REQUIRED");
                                 args.text = resolved.text;
@@ -592,10 +616,15 @@ async function runBrowserUse(raw, deps, signal) {
                             args.replace = true;
                         }
                     }
-                    const experiencePage = page;
-                    const experienceTarget = page.elements.find(e => e.ref === args.ref);
+                    if (typeof args.text === "string")
+                        actionContext.text = args.text;
+                    if (typeof args.option_ref === "string")
+                        actionContext.option = args.option_ref;
+                    const actionPage = page;
+                    const actionTarget = page.elements.find(e => e.ref === args.ref);
                     const operationId = (0, node_crypto_1.randomUUID)();
                     lastAction = { operationId, operation: op.choice, outcome: "unknown" };
+                    emit({ phase: "dispatch", operationId, requestId: request.requestId, operation: op.choice, outcome: "unknown" });
                     progress({
                         phase: "acting",
                         requestId: request.requestId,
@@ -608,13 +637,17 @@ async function runBrowserUse(raw, deps, signal) {
                     catch (error) {
                         if (error instanceof BrowserUseError && error.notExecuted)
                             lastAction.outcome = "not_executed";
+                        history.push({ ...actionContext, outcome: lastAction.outcome, reason: errorCode(error), changed: false });
+                        emit({ phase: "action", operationId, requestId: request.requestId, operation: op.choice, outcome: lastAction.outcome, reason: errorCode(error) });
                         if (error instanceof BrowserUseError &&
                             error.notExecuted &&
                             errorCode(error) === "STALE_OBSERVATION") {
                             check();
-                            if (staleRetries >= input.maxStaleRetries)
+                            if (consecutiveStale >= input.maxStaleRetries)
                                 return result("blocked", "STALE_RETRY_BUDGET");
                             staleRetries++;
+                            consecutiveStale++;
+                            emit({ phase: "recovery", reason: "STALE_OBSERVATION", staleRetries, consecutiveStale });
                             page = exports.BrowserObservation.parse(await observeFresh());
                             return undefined; // Discard the old decision; never replay the rejected action.
                         }
@@ -627,6 +660,7 @@ async function runBrowserUse(raw, deps, signal) {
                             : errorCode(error));
                     }
                     lastAction.outcome = "confirmed";
+                    emit({ phase: "action", operationId, requestId: request.requestId, operation: op.choice, outcome: "confirmed" });
                     lastConfirmedAction = {
                         operationId,
                         operation: op.choice,
@@ -637,21 +671,25 @@ async function runBrowserUse(raw, deps, signal) {
                     // If post-action observation failed, preserve confirmed execution and only read again.
                     page = exports.BrowserObservation.parse(action.observation ??
                         (await observeFresh()));
-                    if (experienceTarget && !experienceTarget.sensitive && page.url === experiencePage.url) {
-                        const matches = page.elements.filter(e => e.label === experienceTarget.label && e.role === experienceTarget.role && e.tag === experienceTarget.tag);
+                    if (actionTarget && !actionTarget.sensitive && page.url === actionPage.url) {
+                        const matches = page.elements.filter(e => e.label === actionTarget.label && e.role === actionTarget.role && e.tag === actionTarget.tag);
                         const after = matches.length === 1 ? matches[0] : undefined;
-                        const expected = after && name === 'page_type' && after.value === args.text && after.value !== experienceTarget.value ? 'value-changed' :
-                            after && name === 'page_select' && after.value !== experienceTarget.value ? 'selection-changed' :
-                                after && name === 'page_click' && after.expanded !== experienceTarget.expanded && after.expanded !== undefined ? 'expanded-changed' : undefined;
-                        if (expected)
-                            await learning.effect((0, experience_runtime_js_1.browserExperience)(experiencePage), { when: (0, experience_runtime_js_1.controlPattern)(experienceTarget), action: name === 'page_type' ? 'type' : name === 'page_select' ? 'select' : 'click', expected }, operationId);
+                        const expected = after && name === 'page_type' && after.value === args.text && after.value !== actionTarget.value ? 'value-changed' :
+                            after && name === 'page_select' && after.value !== actionTarget.value ? 'selection-changed' :
+                                after && name === 'page_click' && after.expanded !== actionTarget.expanded && after.expanded !== undefined ? 'expanded-changed' : undefined;
+                        emit({ phase: "effect", operationId, operation: op.choice, effectObserved: !!expected, ...(expected ? { effect: expected } : {}) });
                     }
                 }
                 if (op.choice === "WAIT")
                     steps++;
                 const changed = before !==
                     JSON.stringify([page.url, page.text, page.elements, page.scroll]);
-                history.push({ operation: op.choice, changed });
+                history.push({ ...actionContext, outcome: "confirmed", changed });
+                if (history.length > 10)
+                    history.splice(0, history.length - 10);
+                // Only observed progress resets the consecutive stale budget. Global bounds still apply.
+                if (changed)
+                    consecutiveStale = 0;
                 waitStreak = op.choice === "WAIT" ? waitStreak + 1 : 0;
                 noProgress = changed || op.choice === "WAIT" ? 0 : noProgress + 1;
                 if (waitStreak >= 10)
