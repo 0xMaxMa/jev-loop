@@ -840,3 +840,29 @@ test("read recovery does not retry consent failures",async()=>{
    assert.equal(verified,false);
   }
  });
+
+test('basic loop preserves action context without packs and emits private structural trace', async()=>{
+ const f=fixture(['TYPE_TEXT','DONE']), evaluate=f.deps.evaluate;
+ f.page.elements[0].value='';
+ const call=f.deps.call;
+ f.deps.call=async(name,args,signal)=>{if(name==='page_type')f.page.elements[0].value=String(args.text);return call(name,args,signal);};
+ let history:unknown;f.deps.evaluate=async(req,s)=>{assert(!('experience' in req.state));if(req.state.recent_actions instanceof Array&&req.state.recent_actions.length)history=req.state.recent_actions[0];return evaluate(req,s);};
+ const result=await runBrowserUse({goal:'Fill name',scope,fields:[{label:' Name ',text:'private value'}]},f.deps,new AbortController().signal);
+ assert.equal(result.reason,'COMPLETION_CANDIDATE');
+ assert.deepEqual(history,{operation:'TYPE_TEXT',target:{ref:'e0',label:'Name',role:'input'},previousValue:'',text:'private value',outcome:'confirmed',changed:true});
+ assert(result.trace?.events.some(e=>e.phase==='effect'&&e.effectObserved));
+ assert.equal(result.trace?.events.at(-1)?.verified,false);
+ assert(!JSON.stringify(result.trace).includes('private value'));
+});
+test('stale budget resets after observed progress but unknown mutations are never replayed',async()=>{
+ const f=fixture(['CLICK','CLICK','CLICK','CLICK','DONE']),call=f.deps.call;let clicks=0;
+ f.deps.call=async(name,args,s)=>{if(name==='page_click'){clicks++;if(clicks%2)return {error:'STALE_OBSERVATION',action_executed:false};f.page.text='Progress '+clicks;}return call(name,args,s);};
+ // fixture changes text too, so retain distinct target state to demonstrate progress.
+ const wrapped=f.deps.call;f.deps.call=async(name,args,s)=>{if(name==='page_click'&&clicks%2)f.page.elements[0].value=String(clicks);return wrapped(name,args,s);};
+ const r=await runBrowserUse({goal:'Click two controls',scope,maxStaleRetries:1},f.deps,new AbortController().signal);
+ assert.equal(r.reason,'COMPLETION_CANDIDATE');assert.equal(r.staleRetries,2);assert.equal(clicks,4);
+});
+test('unsupported model choice is not a site blocking claim',async()=>{
+ const f=fixture(['BLOCKED']);const r=await runBrowserUse({goal:'Inspect',scope},f.deps,new AbortController().signal);
+ assert.equal(r.reason,'NO_SUPPORTED_ACTION');assert.equal(r.steps,0);
+});
