@@ -902,3 +902,24 @@ test('interruption does not wait for an inference provider ignoring cancellation
  f.deps.evaluate=async()=>{control.abort();return new Promise(()=>{});};
  const r=await runBrowserUse({goal:'Inspect',scope},f.deps,new AbortController().signal);assert.equal(r.reason,'REVISION_SUPERSEDED');assert.equal(r.steps,0);
 });
+
+test('confirmed focus-only preparation reobserves without claiming text was inserted', async () => {
+  const f=fixture(['TYPE_TEXT','TYPE_TEXT','DONE']);
+  const original=f.deps.call;let typed=0;const events:any[]=[];
+  f.deps.trace=e=>{events.push(e)};
+  f.deps.call=async(name,args,signal)=>{
+    if(name==='page_type' && typed++===0){
+      f.calls.push({name,args});assert.equal(args.accept_focus_only,true);
+      f.page.generation='focused';f.page.text='Date dialog opened';
+      return {state:'completed',result:{ok:true,completed_action:'FOCUS',text_inserted:false,observation:structuredClone(f.page)}};
+    }
+    return original(name,args,signal);
+  };
+  const r=await runBrowserUse({goal:'Fill Name',scope,fields:[{label:'Name',text:'Value'}]},f.deps,new AbortController().signal);
+  assert.equal(r.reason,'COMPLETION_CANDIDATE');
+  assert.equal(r.steps,2);
+  assert.deepEqual(events.filter(e=>e.phase==='action').map(e=>e.operation),['FOCUS','TYPE_TEXT']);
+  const types=f.calls.filter(c=>c.name==='page_type');
+  assert.equal(types.length,2);assert.notEqual(types[0].args.operation_id,types[1].args.operation_id);
+  assert.equal(types[1].args.generation,'focused');
+});

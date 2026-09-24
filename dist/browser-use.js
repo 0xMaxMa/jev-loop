@@ -627,6 +627,7 @@ async function runBrowserUse(raw, deps, signal) {
                             }
                             fieldRequest = undefined;
                             args.replace = true;
+                            args.accept_focus_only = true;
                         }
                     }
                     if (typeof args.text === "string")
@@ -674,11 +675,18 @@ async function runBrowserUse(raw, deps, signal) {
                             ? "OUTCOME_UNKNOWN"
                             : errorCode(error));
                     }
+                    const focusOnly = name === "page_type" && action.completed_action === "FOCUS" && action.text_inserted === false;
+                    const completedOperation = focusOnly ? "FOCUS" : op.choice;
+                    if (focusOnly) {
+                        actionContext.operation = "FOCUS";
+                        delete actionContext.text;
+                        lastAction.operation = "FOCUS";
+                    }
                     lastAction.outcome = "confirmed";
-                    emit({ phase: "action", operationId, requestId: request.requestId, operation: op.choice, outcome: "confirmed" });
+                    emit({ phase: "action", operationId, requestId: request.requestId, operation: completedOperation, outcome: "confirmed" });
                     lastConfirmedAction = {
                         operationId,
-                        operation: op.choice,
+                        operation: completedOperation,
                         outcome: "confirmed",
                     };
                     steps++;
@@ -689,7 +697,7 @@ async function runBrowserUse(raw, deps, signal) {
                     if (actionTarget && !actionTarget.sensitive && page.url === actionPage.url) {
                         const matches = page.elements.filter(e => e.label === actionTarget.label && e.role === actionTarget.role && e.tag === actionTarget.tag);
                         const after = matches.length === 1 ? matches[0] : undefined;
-                        const expected = after && name === 'page_type' && after.value === args.text && after.value !== actionTarget.value ? 'value-changed' :
+                        const expected = after && !focusOnly && name === 'page_type' && after.value === args.text && after.value !== actionTarget.value ? 'value-changed' :
                             after && name === 'page_select' && after.value !== actionTarget.value ? 'selection-changed' :
                                 after && name === 'page_click' && after.expanded !== actionTarget.expanded && after.expanded !== undefined ? 'expanded-changed' : undefined;
                         emit({ phase: "effect", operationId, operation: op.choice, effectObserved: !!expected, ...(expected ? { effect: expected } : {}) });
