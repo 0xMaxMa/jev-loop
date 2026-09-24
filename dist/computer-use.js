@@ -182,8 +182,10 @@ async function runComputerUse(raw, deps, signal) {
                     update();
                     if (goal.revision !== d.revision)
                         return;
-                    if (text.text === null)
+                    if (text.text === null) {
+                        await capture();
                         return result('needs_input', 'FIELD_TEXT_REQUIRED');
+                    }
                     const field = last?.controls.find(c => c.ref === action.ref);
                     if (field && last) {
                         satisfiedField = { ref: field.ref, application: last.application, windowTitle: last.windowTitle, label: field.label, role: field.role, value: text.text };

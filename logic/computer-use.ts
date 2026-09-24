@@ -119,7 +119,7 @@ export async function runComputerUse(raw:unknown,deps:ComputerUseDependencies,si
      if(prepared.length!==1)emit('thinking',summary(action));
      const text=prepared.length===1?{text:prepared[0].text}:z.object({text:z.string().max(2000).nullable()}).strict().parse(await ctx.think({goal:goal.goal,control:target,application:last?.application,windowTitle:last?.windowTitle,visibleText:last?.text,controls:last?.controls}));
      check();checkInterruption(deps.interruptSignal);update();if(goal.revision!==d.revision)return;
-     if(text.text===null)return result('needs_input','FIELD_TEXT_REQUIRED');
+     if(text.text===null){await capture();return result('needs_input','FIELD_TEXT_REQUIRED');}
      const field=last?.controls.find(c=>c.ref===action.ref);
      if(field&&last){satisfiedField={ref:field.ref,application:last.application,windowTitle:last.windowTitle,label:field.label,role:field.role,value:text.text};if(field.value===text.text&&field.focused!==false){emit('acted',{...summary(action),outcome:'not_executed',reason:'VALUE_ALREADY_SET'});return;}}
      action.text=text.text;
