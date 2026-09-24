@@ -40,6 +40,10 @@
     "./computer-thinking": {
       "types": "./computer-thinking.d.ts",
       "default": "./computer-thinking.cjs"
+    },
+    "./action-thinking": {
+      "types": "./action-thinking.d.ts",
+      "default": "./action-thinking.cjs"
     }
   },
   "files": [

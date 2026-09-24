@@ -1,3 +1,5 @@
+import {Handover} from './handover.js';
+import type {ActionThinkingRequest,ActionThinkingDecision} from '../action-thinking';
 import {checkInterruption,interruptible} from "./interrupt.js";
 import {BrowserTraceEvent, BrowserTrace} from "./browser-trace.js";
 import { runLoop } from "@0xmaxma/jev-loop";
@@ -101,6 +103,7 @@ export type BrowserRecoveryRequest = {
 };
 export type BrowserRecoveryPlan = {guidance:string|null;fields:Array<{label:string;text:string}>};
 export type BrowserUseDependencies = {
+  decideAction?:(request:ActionThinkingRequest,signal:AbortSignal)=>Promise<ActionThinkingDecision>;
   /** Optional tool-free reasoning. Suggestions never execute actions or replace the goal. */
   recover?: (request:BrowserRecoveryRequest,signal:AbortSignal)=>Promise<BrowserRecoveryPlan>;
   snapshot?: (leaseToken:string,signal:AbortSignal)=>Promise<{mimeType:'image/png';data:string}>;
@@ -339,6 +342,7 @@ export async function runBrowserUse(
   const parsedInput = Input.safeParse(raw);
   if (!parsedInput.success) throw new BrowserUseInputError();
   const input = parsedInput.data;
+  const handover=new Handover(!!deps.decideAction);
   const controller = new AbortController();
   const cancelled = () => controller.abort();
   signal.addEventListener("abort", cancelled, { once: true });
@@ -498,7 +502,16 @@ export async function runBrowserUse(
   }
   async function recoverLocally(reason:string):Promise<boolean>{
     // Never reason into replaying a mutation whose effect has not been established.
-    if(!deps.recover||!page||lastAction?.outcome==='unknown')return false;
+    if(!page||lastAction?.outcome==='unknown')return false;
+    if(handover.available){
+      if(handover.active)return false;
+      // Suppressed/blocked choices count as attempts, never as replayed mutations.
+      if(handover.failures<3)handover.progress(false);
+      if(handover.enter())emit({phase:'recovery',reason:'THINKING_TAKEOVER'});
+      else {await settlePage();emit({phase:'recovery',reason:'JEV_RETRY'});}
+      return true;
+    }
+    if(!deps.recover)return false;
     check();checkInterruption(deps.interruptSignal);
     const previous=fingerprint(page);
     if(refreshes<3){refreshes++;await settlePage();if(fingerprint(page!)!==previous){emit({phase:'recovery',reason:'PAGE_CHANGED'});return true;}}
@@ -619,7 +632,7 @@ export async function runBrowserUse(
       page = BrowserObservation.parse(await observeFresh());
     }
     if(emptyViewport()) return result("blocked","PAGE_CONTENT_UNAVAILABLE");
-    return await runLoop<Observation, {op:ReturnType<typeof choice>;validated:Record<string,ReturnType<typeof choice>>;targets:ReturnType<typeof decisionQuestions>["targets"];before:string;actionPageUrl:string;request:EvaluationRequest},BrowserUseResult>({
+    return await runLoop<Observation, {op:ReturnType<typeof choice>;validated:Record<string,ReturnType<typeof choice>>;targets:ReturnType<typeof decisionQuestions>["targets"];before:string;actionPageUrl:string;request:EvaluationRequest;direct?:boolean;text?:string|null},BrowserUseResult>({
       signal:controller.signal,maxCycles:input.maxEvaluations+1,stageTimeoutMs:input.timeoutMs+1000,
       thinking: deps.resolveFieldText ? (request,signal)=>interruptible(s=>deps.resolveFieldText!(request as FieldTextRequest,s),signal,deps.interruptSignal) : undefined,
       thinkingTimeoutMs:15000,maxThinkingCalls:input.maxTextCalls,
@@ -690,6 +703,34 @@ export async function runBrowserUse(
       };
       if (Buffer.byteLength(JSON.stringify(request)) > 128 * 1024)
         return {result:result("blocked", "EVALUATION_INPUT_TOO_LARGE")};
+      if(handover.enter())emit({phase:'recovery',reason:'THINKING_TAKEOVER'});
+      if(handover.exhausted)return {result:result('blocked','THINKING_WAITING_INPUT')};
+      if(handover.active){
+        if(!deps.snapshot||!lease)return {result:result('blocked','THINKING_SCREENSHOT_REQUIRED')};
+        const screenshot=await bounded(s=>deps.snapshot!(lease!,s),5000);
+        const actions:Record<string,string>={};
+        for(const [op,description] of Object.entries(questions.operation.criteria)){
+          const targetQuestion=questions[op.toLowerCase()+'_target'];
+          if(targetQuestion)for(const [id,target] of Object.entries(targetQuestion.criteria))actions[op+':'+id]=description+' '+target;
+          else actions[op]=description;
+        }
+        handover.calls++;
+        const decision=await bounded(s=>interruptible(child=>deps.decideAction!({goal:input.goal,state:request.state,actions,recentActions:history.slice(-8),screenshot},child),s,deps.interruptSignal),30000);
+        check();checkInterruption(deps.interruptSignal);
+        if(decision.action===null)return {result:result('blocked','THINKING_WAITING_INPUT')};
+        if(!Object.hasOwn(actions,decision.action)||!(decision.text===null||typeof decision.text==='string'&&decision.text.length<=2000))throw Error('INVALID_DECISION');
+        const reasoningPage=page;page=BrowserObservation.parse(await observeFresh());
+        if(fingerprint(page)!==fingerprint(reasoningPage)){
+          handover.progress(false);emit({phase:'recovery',reason:'THINKING_CONTEXT_CHANGED'});
+          return {action:{op:{choice:'WAIT',confidence:1,probabilities:{WAIT:1}},validated:{},targets,before,request,actionPageUrl}};
+        }
+        const separator=decision.action.indexOf(':'),opName=separator<0?decision.action:decision.action.slice(0,separator),target=separator<0?undefined:decision.action.slice(separator+1);
+        const op={choice:opName,confidence:1,probabilities:{[opName]:1}};
+        const validated:Record<string,ReturnType<typeof choice>>={operation:op};
+        if(target)validated[opName.toLowerCase()+'_target']={choice:target,confidence:1,probabilities:{[target]:1}};
+        emit({phase:'decision',operation:opName,reason:'THINKING_ACTION',requestId:request.requestId});
+        return {action:{op,validated,targets,before,request,actionPageUrl,direct:true,text:decision.text}};
+      }
       const started = performance.now();
       evaluations++;
       lastEvaluation = { requestId: request.requestId };
@@ -726,14 +767,13 @@ export async function runBrowserUse(
       });
         return {action:{op,validated,targets,before,request,actionPageUrl}};
       },
-      execute:async({op,validated,targets,before,request,actionPageUrl},loop)=>{
+      execute:async({op,validated,targets,before,request,actionPageUrl,direct,text},loop)=>{
       checkInterruption(deps.interruptSignal);
       if(!page)throw Error("OBSERVATION_UNAVAILABLE");
-      if (op.confidence < input.operationConfidence)
-        return result("blocked", "LOW_OPERATION_CONFIDENCE");
+      if (op.confidence < input.operationConfidence){if(handover.available&&await recoverLocally("LOW_OPERATION_CONFIDENCE"))return;return result("blocked", "LOW_OPERATION_CONFIDENCE");}
       // The next browser operation atomically checks current ownership/consent.
       // A separate renewal here would add a redundant browser round trip.
-      if (op.choice === "BLOCKED") {if(await recoverLocally("NO_SUPPORTED_ACTION"))return undefined;return result("blocked", "NO_SUPPORTED_ACTION");}
+      if (op.choice === "BLOCKED") {if(await recoverLocally("NO_SUPPORTED_ACTION"))return undefined;return result("blocked", handover.active?"THINKING_WAITING_INPUT":"NO_SUPPORTED_ACTION");}
       if (op.choice === "DONE") {
         page = BrowserObservation.parse(
           await observeFresh(),
@@ -786,8 +826,7 @@ export async function runBrowserUse(
           };
         } else {
           const target = validated[op.choice.toLowerCase() + "_target"];
-          if (!target || target.confidence < input.targetConfidence)
-            return result("blocked", "LOW_TARGET_CONFIDENCE");
+          if (!target || target.confidence < input.targetConfidence){if(handover.available&&await recoverLocally("LOW_TARGET_CONFIDENCE"))return;return result("blocked", "LOW_TARGET_CONFIDENCE");}
           const selected = targets.get(op.choice + ":" + target.choice);
           if (!selected) throw Error("INVALID_DECISION");
           actionContext={...actionContext,target:{ref:selected.element.ref,label:selected.element.label,role:selected.element.role??selected.element.tag,context:selected.element.context},previousValue:selected.element.value};
@@ -818,7 +857,11 @@ export async function runBrowserUse(
               };
               return result("blocked", "FIELD_TEXT_REQUIRED");
             }
-            if (matches.length) args.text = matches[0].text;
+            if(direct){
+              if(text===null||text===undefined)return result('blocked','THINKING_WAITING_INPUT');
+              args.text=text;
+            }
+            else if (matches.length) args.text = matches[0].text;
             else {
               fieldRequest = {
                 ref: selected.element.ref,
@@ -883,14 +926,14 @@ export async function runBrowserUse(
           const current=fingerprint(page);
           await settlePage();
           noProgress=fingerprint(page)===current?noProgress+1:0;
-          if(noProgress>=2){if(await recoverLocally('FIELD_VALUE_ALREADY_PRESENT'))return undefined;return result('blocked','NO_PROGRESS');}
+          if(noProgress>=2){if(await recoverLocally('FIELD_VALUE_ALREADY_PRESENT'))return undefined;return result('blocked',handover.active?'THINKING_WAITING_INPUT':'NO_PROGRESS');}
           return undefined;
         }
         const actionKey=JSON.stringify([page.url,name,actionTarget?.label,actionTarget?.role,args.text,args.option_ref]);
         if(ineffectiveActions.get(actionKey)===fingerprint(page)){
           emit({phase:'recovery',reason:'REPEATED_NO_EFFECT',operation:op.choice});
           if(await recoverLocally('REPEATED_NO_EFFECT'))return undefined;
-          return result('blocked','NO_PROGRESS');
+          return result('blocked',handover.active?'THINKING_WAITING_INPUT':'NO_PROGRESS');
         }
         const operationId = randomUUID();
         const targetRef=typeof args.ref==="string"?args.ref:undefined;
@@ -989,14 +1032,16 @@ export async function runBrowserUse(
       if(op.choice!=="WAIT"&&visits>=3){
         emit({phase:'recovery',reason:'REPEATED_STATE'});
         if(await recoverLocally('REPEATED_STATE'))return undefined;
-        return result('blocked','NO_PROGRESS');
+        return result('blocked',handover.active?'THINKING_WAITING_INPUT':'NO_PROGRESS');
       }
       // Only observed progress resets the consecutive stale budget. Global bounds still apply.
+      handover.progress(changed);
       if(changed)consecutiveStale=0;
       waitStreak = op.choice === "WAIT" ? waitStreak + 1 : 0;
       noProgress = changed || op.choice === "WAIT" ? 0 : noProgress + 1;
       if (waitStreak >= 10) return result("blocked", "WAIT_BUDGET");
-      if (noProgress >= 3) {if(await recoverLocally("NO_PROGRESS"))return undefined;return result("blocked", "NO_PROGRESS");}
+      if(handover.available&&handover.failures>=3){if(handover.enter()){emit({phase:"recovery",reason:"THINKING_TAKEOVER"});return;}if(handover.exhausted)return result("blocked","THINKING_WAITING_INPUT");}
+      if (noProgress >= 3) {if(await recoverLocally("NO_PROGRESS"))return undefined;return result("blocked",handover.active?"THINKING_WAITING_INPUT":"NO_PROGRESS");}
         return undefined;
       },
     });

@@ -1063,3 +1063,18 @@ test('changing counter values do not look like a repeated UI state',async()=>{
  const r=await runBrowserUse({goal:'Set count to six',scope},f.deps,new AbortController().signal);
  assert.equal(r.reason,'COMPLETION_CANDIDATE');assert.equal(count,6);
 });
+
+test('three unsupported decisions transfer browser control to Thinking with screenshot',async()=>{
+ const f=fixture(['BLOCKED','BLOCKED','BLOCKED']);let count=0;
+ f.deps.snapshot=async()=>({mimeType:'image/png',data:'aA=='});
+ f.deps.decideAction=async req=>{assert.equal(req.screenshot?.data,'aA==');count++;return {action:count===1?'CLICK:e1':'DONE',text:null};};
+ const r=await runBrowserUse({contractVersion:1,goal:'Submit',scope},f.deps,new AbortController().signal);
+ assert.equal(r.evaluations,3);assert.equal(count,2);assert.equal(r.steps,1);assert.equal(r.status,'needs_verification');
+});
+test('browser Thinking null stays waiting and never executes arbitrary model action',async()=>{
+ for(const action of [null,'arbitrary:execute']){
+ const f=fixture(['BLOCKED','BLOCKED','BLOCKED']);f.deps.snapshot=async()=>({mimeType:'image/png',data:'aA=='});f.deps.decideAction=async()=>({action,text:null});
+ const r=await runBrowserUse({contractVersion:1,goal:'Submit',scope},f.deps,new AbortController().signal);
+ assert.equal(r.reason,action===null?'THINKING_WAITING_INPUT':'INVALID_DECISION');assert.equal(r.steps,0);
+ }
+});

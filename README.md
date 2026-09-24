@@ -241,3 +241,32 @@ Prepared values still bypass inference. Hosts provide credentials and optional
 reference context; they retain authorization, task lifecycle, durable mutation
 receipts and independent completion verification. Thinking cannot execute tools,
 change the goal, grant consent, or resolve an unknown action outcome.
+
+### Direct Thinking takeover
+
+Browser and Computer Use hosts can supply `decideAction` in addition to Jev
+`evaluate`. Three consecutive attempts without observed progress transfer the
+current command to Thinking. Three successful/progressing actions do not trigger
+this transfer. The mode stays with Thinking for that command; a new command starts
+with Jev again. Thinking is bounded to eight decisions and three consecutive
+no-progress results, then returns `THINKING_WAITING_INPUT`.
+
+`@0xmaxma/jev-loop/action-thinking` exports `thinkAction` and `thinkChoices`.
+The latter batches up to eight independent choice questions in one multimodal
+request. Options use request-local numeric string IDs (`"0"`, `"1"`, …), decoded
+by the host; IDs must never be reused against another frame. The response contains
+only `answers`, plus literal `text` exclusively for a selected typing action.
+Extra fields, prose, missing answers and non-offered IDs are rejected. No model
+confidence is fabricated or interpreted as verified completion.
+
+Takeover receives the original/current goal, bounded recent outcomes, a fresh
+approved screenshot and supported actions. It selects one action, then observes
+again. It does not emit an action script or queue clicks against stale targets.
+Generation/ownership checks, durable operation receipts, interruption and unknown
+outcome reconciliation remain in force. Unknown actions never trigger replay or
+model escalation. A changed screen invalidates the inferred decision.
+
+Computer observations may advertise `supportedActions`: `scroll:up`,
+`scroll:down`, `navigate:back`, `navigate:forward`. Hosts without these capabilities
+continue to work and these actions are not offered. Screenshots do not authorize
+arbitrary coordinate clicks or shell commands.

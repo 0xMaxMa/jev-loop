@@ -4,6 +4,7 @@ exports.BrowserObservation = exports.BrowserUseInputError = exports.BROWSER_USE_
 exports.decisionQuestions = decisionQuestions;
 exports.runBrowserUse = runBrowserUse;
 exports.mcpBrowserTransport = mcpBrowserTransport;
+const handover_js_1 = require("./handover.js");
 const interrupt_js_1 = require("./interrupt.js");
 const jev_loop_1 = require("@0xmaxma/jev-loop");
 const node_crypto_1 = require("node:crypto");
@@ -225,6 +226,7 @@ async function runBrowserUse(raw, deps, signal) {
     if (!parsedInput.success)
         throw new BrowserUseInputError();
     const input = parsedInput.data;
+    const handover = new handover_js_1.Handover(!!deps.decideAction);
     const controller = new AbortController();
     const cancelled = () => controller.abort();
     signal.addEventListener("abort", cancelled, { once: true });
@@ -372,7 +374,23 @@ async function runBrowserUse(raw, deps, signal) {
     }
     async function recoverLocally(reason) {
         // Never reason into replaying a mutation whose effect has not been established.
-        if (!deps.recover || !page || lastAction?.outcome === 'unknown')
+        if (!page || lastAction?.outcome === 'unknown')
+            return false;
+        if (handover.available) {
+            if (handover.active)
+                return false;
+            // Suppressed/blocked choices count as attempts, never as replayed mutations.
+            if (handover.failures < 3)
+                handover.progress(false);
+            if (handover.enter())
+                emit({ phase: 'recovery', reason: 'THINKING_TAKEOVER' });
+            else {
+                await settlePage();
+                emit({ phase: 'recovery', reason: 'JEV_RETRY' });
+            }
+            return true;
+        }
+        if (!deps.recover)
             return false;
         check();
         (0, interrupt_js_1.checkInterruption)(deps.interruptSignal);
@@ -582,6 +600,46 @@ async function runBrowserUse(raw, deps, signal) {
                 };
                 if (Buffer.byteLength(JSON.stringify(request)) > 128 * 1024)
                     return { result: result("blocked", "EVALUATION_INPUT_TOO_LARGE") };
+                if (handover.enter())
+                    emit({ phase: 'recovery', reason: 'THINKING_TAKEOVER' });
+                if (handover.exhausted)
+                    return { result: result('blocked', 'THINKING_WAITING_INPUT') };
+                if (handover.active) {
+                    if (!deps.snapshot || !lease)
+                        return { result: result('blocked', 'THINKING_SCREENSHOT_REQUIRED') };
+                    const screenshot = await bounded(s => deps.snapshot(lease, s), 5000);
+                    const actions = {};
+                    for (const [op, description] of Object.entries(questions.operation.criteria)) {
+                        const targetQuestion = questions[op.toLowerCase() + '_target'];
+                        if (targetQuestion)
+                            for (const [id, target] of Object.entries(targetQuestion.criteria))
+                                actions[op + ':' + id] = description + ' ' + target;
+                        else
+                            actions[op] = description;
+                    }
+                    handover.calls++;
+                    const decision = await bounded(s => (0, interrupt_js_1.interruptible)(child => deps.decideAction({ goal: input.goal, state: request.state, actions, recentActions: history.slice(-8), screenshot }, child), s, deps.interruptSignal), 30000);
+                    check();
+                    (0, interrupt_js_1.checkInterruption)(deps.interruptSignal);
+                    if (decision.action === null)
+                        return { result: result('blocked', 'THINKING_WAITING_INPUT') };
+                    if (!Object.hasOwn(actions, decision.action) || !(decision.text === null || typeof decision.text === 'string' && decision.text.length <= 2000))
+                        throw Error('INVALID_DECISION');
+                    const reasoningPage = page;
+                    page = exports.BrowserObservation.parse(await observeFresh());
+                    if (fingerprint(page) !== fingerprint(reasoningPage)) {
+                        handover.progress(false);
+                        emit({ phase: 'recovery', reason: 'THINKING_CONTEXT_CHANGED' });
+                        return { action: { op: { choice: 'WAIT', confidence: 1, probabilities: { WAIT: 1 } }, validated: {}, targets, before, request, actionPageUrl } };
+                    }
+                    const separator = decision.action.indexOf(':'), opName = separator < 0 ? decision.action : decision.action.slice(0, separator), target = separator < 0 ? undefined : decision.action.slice(separator + 1);
+                    const op = { choice: opName, confidence: 1, probabilities: { [opName]: 1 } };
+                    const validated = { operation: op };
+                    if (target)
+                        validated[opName.toLowerCase() + '_target'] = { choice: target, confidence: 1, probabilities: { [target]: 1 } };
+                    emit({ phase: 'decision', operation: opName, reason: 'THINKING_ACTION', requestId: request.requestId });
+                    return { action: { op, validated, targets, before, request, actionPageUrl, direct: true, text: decision.text } };
+                }
                 const started = performance.now();
                 evaluations++;
                 lastEvaluation = { requestId: request.requestId };
@@ -613,18 +671,21 @@ async function runBrowserUse(raw, deps, signal) {
                 });
                 return { action: { op, validated, targets, before, request, actionPageUrl } };
             },
-            execute: async ({ op, validated, targets, before, request, actionPageUrl }, loop) => {
+            execute: async ({ op, validated, targets, before, request, actionPageUrl, direct, text }, loop) => {
                 (0, interrupt_js_1.checkInterruption)(deps.interruptSignal);
                 if (!page)
                     throw Error("OBSERVATION_UNAVAILABLE");
-                if (op.confidence < input.operationConfidence)
+                if (op.confidence < input.operationConfidence) {
+                    if (handover.available && await recoverLocally("LOW_OPERATION_CONFIDENCE"))
+                        return;
                     return result("blocked", "LOW_OPERATION_CONFIDENCE");
+                }
                 // The next browser operation atomically checks current ownership/consent.
                 // A separate renewal here would add a redundant browser round trip.
                 if (op.choice === "BLOCKED") {
                     if (await recoverLocally("NO_SUPPORTED_ACTION"))
                         return undefined;
-                    return result("blocked", "NO_SUPPORTED_ACTION");
+                    return result("blocked", handover.active ? "THINKING_WAITING_INPUT" : "NO_SUPPORTED_ACTION");
                 }
                 if (op.choice === "DONE") {
                     page = exports.BrowserObservation.parse(await observeFresh());
@@ -670,8 +731,11 @@ async function runBrowserUse(raw, deps, signal) {
                     }
                     else {
                         const target = validated[op.choice.toLowerCase() + "_target"];
-                        if (!target || target.confidence < input.targetConfidence)
+                        if (!target || target.confidence < input.targetConfidence) {
+                            if (handover.available && await recoverLocally("LOW_TARGET_CONFIDENCE"))
+                                return;
                             return result("blocked", "LOW_TARGET_CONFIDENCE");
+                        }
                         const selected = targets.get(op.choice + ":" + target.choice);
                         if (!selected)
                             throw Error("INVALID_DECISION");
@@ -697,7 +761,12 @@ async function runBrowserUse(raw, deps, signal) {
                                 };
                                 return result("blocked", "FIELD_TEXT_REQUIRED");
                             }
-                            if (matches.length)
+                            if (direct) {
+                                if (text === null || text === undefined)
+                                    return result('blocked', 'THINKING_WAITING_INPUT');
+                                args.text = text;
+                            }
+                            else if (matches.length)
                                 args.text = matches[0].text;
                             else {
                                 fieldRequest = {
@@ -769,7 +838,7 @@ async function runBrowserUse(raw, deps, signal) {
                         if (noProgress >= 2) {
                             if (await recoverLocally('FIELD_VALUE_ALREADY_PRESENT'))
                                 return undefined;
-                            return result('blocked', 'NO_PROGRESS');
+                            return result('blocked', handover.active ? 'THINKING_WAITING_INPUT' : 'NO_PROGRESS');
                         }
                         return undefined;
                     }
@@ -778,7 +847,7 @@ async function runBrowserUse(raw, deps, signal) {
                         emit({ phase: 'recovery', reason: 'REPEATED_NO_EFFECT', operation: op.choice });
                         if (await recoverLocally('REPEATED_NO_EFFECT'))
                             return undefined;
-                        return result('blocked', 'NO_PROGRESS');
+                        return result('blocked', handover.active ? 'THINKING_WAITING_INPUT' : 'NO_PROGRESS');
                     }
                     const operationId = (0, node_crypto_1.randomUUID)();
                     const targetRef = typeof args.ref === "string" ? args.ref : undefined;
@@ -872,19 +941,28 @@ async function runBrowserUse(raw, deps, signal) {
                     emit({ phase: 'recovery', reason: 'REPEATED_STATE' });
                     if (await recoverLocally('REPEATED_STATE'))
                         return undefined;
-                    return result('blocked', 'NO_PROGRESS');
+                    return result('blocked', handover.active ? 'THINKING_WAITING_INPUT' : 'NO_PROGRESS');
                 }
                 // Only observed progress resets the consecutive stale budget. Global bounds still apply.
+                handover.progress(changed);
                 if (changed)
                     consecutiveStale = 0;
                 waitStreak = op.choice === "WAIT" ? waitStreak + 1 : 0;
                 noProgress = changed || op.choice === "WAIT" ? 0 : noProgress + 1;
                 if (waitStreak >= 10)
                     return result("blocked", "WAIT_BUDGET");
+                if (handover.available && handover.failures >= 3) {
+                    if (handover.enter()) {
+                        emit({ phase: "recovery", reason: "THINKING_TAKEOVER" });
+                        return;
+                    }
+                    if (handover.exhausted)
+                        return result("blocked", "THINKING_WAITING_INPUT");
+                }
                 if (noProgress >= 3) {
                     if (await recoverLocally("NO_PROGRESS"))
                         return undefined;
-                    return result("blocked", "NO_PROGRESS");
+                    return result("blocked", handover.active ? "THINKING_WAITING_INPUT" : "NO_PROGRESS");
                 }
                 return undefined;
             },

@@ -1,3 +1,4 @@
+import type { ActionThinkingRequest, ActionThinkingDecision } from '../action-thinking';
 import { BrowserTraceEvent, BrowserTrace } from "./browser-trace.js";
 import { z } from "zod";
 export declare const BROWSER_USE_CONTRACT_VERSION: 1;
@@ -274,6 +275,7 @@ export type BrowserRecoveryPlan = {
     }>;
 };
 export type BrowserUseDependencies = {
+    decideAction?: (request: ActionThinkingRequest, signal: AbortSignal) => Promise<ActionThinkingDecision>;
     /** Optional tool-free reasoning. Suggestions never execute actions or replace the goal. */
     recover?: (request: BrowserRecoveryRequest, signal: AbortSignal) => Promise<BrowserRecoveryPlan>;
     snapshot?: (leaseToken: string, signal: AbortSignal) => Promise<{
