@@ -239,6 +239,9 @@ async function runBrowserUse(raw, deps, signal) {
     let steps = 0, evaluations = 0, noProgress = 0, waitStreak = 0, staleRetries = 0, consecutiveStale = 0, textCalls = 0;
     // Rich context is ephemeral and stays inside the authorized inference boundary.
     const history = [];
+    const fieldValues = [...input.fields];
+    let recoveryCalls = 0, refreshes = 0, guidance;
+    const plans = new Set();
     const trace = { version: 1, events: [], truncated: false, sinkFailed: false };
     let sequence = 0;
     const emit = (event) => {
@@ -345,6 +348,71 @@ async function runBrowserUse(raw, deps, signal) {
         if (mutation && r.state !== "completed")
             throw new BrowserUseError("OUTCOME_UNKNOWN");
         return (mutation ? r.result : r);
+    }
+    const fingerprint = (p) => JSON.stringify([p.url, p.text, p.elements, p.scroll]);
+    async function settlePage() {
+        const before = fingerprint(page);
+        await bounded(s => new Promise((resolve, reject) => {
+            const abort = () => { clearTimeout(timer); reject(Error('TASK_CANCELLED')); };
+            const timer = setTimeout(() => { s.removeEventListener('abort', abort); resolve(); }, 300);
+            s.addEventListener('abort', abort, { once: true });
+            if (s.aborted)
+                abort();
+        }), 1000);
+        page = exports.BrowserObservation.parse(await observeFresh());
+        if (fingerprint(page) !== before)
+            consecutiveStale = 0;
+    }
+    async function recoverLocally(reason) {
+        // Never reason into replaying a mutation whose effect has not been established.
+        if (!deps.recover || !page || lastAction?.outcome === 'unknown')
+            return false;
+        check();
+        (0, interrupt_js_1.checkInterruption)(deps.interruptSignal);
+        const previous = fingerprint(page);
+        if (refreshes < 3) {
+            refreshes++;
+            await settlePage();
+            if (fingerprint(page) !== previous) {
+                emit({ phase: 'recovery', reason: 'PAGE_CHANGED' });
+                return true;
+            }
+        }
+        if (recoveryCalls >= 2)
+            return false;
+        recoveryCalls++;
+        let screenshot;
+        if (deps.snapshot && lease) {
+            try {
+                screenshot = await bounded(s => deps.snapshot(lease, s), 5000);
+            }
+            catch {
+                check();
+                (0, interrupt_js_1.checkInterruption)(deps.interruptSignal);
+            }
+        }
+        const plan = zod_1.z.object({ guidance: zod_1.z.string().max(1000).nullable(), fields: zod_1.z.array(zod_1.z.object({ label: zod_1.z.string().min(1).max(250), text: zod_1.z.string().min(1).max(2000) }).strict()).max(12) }).strict().parse(await bounded(s => (0, interrupt_js_1.interruptible)(child => deps.recover({ goal: input.goal, reason, page: structuredClone(page), recent_actions: history.slice(-8), supplied_fields: fieldValues, ...(screenshot ? { screenshot } : {}) }, child), s, deps.interruptSignal), 15000));
+        check();
+        (0, interrupt_js_1.checkInterruption)(deps.interruptSignal);
+        const key = JSON.stringify(plan);
+        if (plans.has(key) || (!plan.guidance && !plan.fields.length))
+            return false;
+        plans.add(key);
+        // Match live unique nonsensitive fields; a model never supplies refs or browser operations.
+        for (const f of plan.fields) {
+            const candidates = page.elements.filter(e => normalizeLabel(e.label) === normalizeLabel(f.label) && !e.sensitive && e.in_viewport !== false && e.operations.includes('TYPE_TEXT'));
+            if (candidates.length !== 1)
+                continue;
+            const old = fieldValues.findIndex(v => normalizeLabel(v.label) === normalizeLabel(f.label));
+            if (old >= 0)
+                fieldValues[old] = f;
+            else if (fieldValues.length < 60)
+                fieldValues.push(f);
+        }
+        guidance = plan.guidance ?? undefined;
+        noProgress = 0;
+        emit({ phase: 'recovery', reason: 'THINKING_REPLAN' });
+        return true;
     }
     // A document can change while a read is executing (navigation/SPA repaint).
     // Retry only this read; never repeat the preceding confirmed mutation.
@@ -476,7 +544,7 @@ async function runBrowserUse(raw, deps, signal) {
                     requestId: (0, node_crypto_1.randomUUID)(),
                     state: JSON.parse(JSON.stringify({
                         goal: input.goal,
-                        supplied_field_values: input.fields.filter((f) => page.elements.some((e) => normalizeLabel(e.label) === normalizeLabel(f.label) &&
+                        supplied_field_values: fieldValues.filter((f) => page.elements.some((e) => normalizeLabel(e.label) === normalizeLabel(f.label) &&
                             !e.sensitive &&
                             e.in_viewport !== false &&
                             e.operations.includes("TYPE_TEXT"))),
@@ -489,6 +557,7 @@ async function runBrowserUse(raw, deps, signal) {
                             truncated: page.truncated,
                         },
                         recent_actions: history.slice(-10),
+                        recovery_guidance: guidance,
                         recovery: exhaustedTextFields.size ? "Repeated identical text entry has been temporarily excluded for these fields. Inspect current values and use other offered controls; do not repeat satisfied work." : undefined,
                     })),
                     questions,
@@ -534,8 +603,11 @@ async function runBrowserUse(raw, deps, signal) {
                     return result("blocked", "LOW_OPERATION_CONFIDENCE");
                 // The next browser operation atomically checks current ownership/consent.
                 // A separate renewal here would add a redundant browser round trip.
-                if (op.choice === "BLOCKED")
+                if (op.choice === "BLOCKED") {
+                    if (await recoverLocally("NO_SUPPORTED_ACTION"))
+                        return undefined;
                     return result("blocked", "NO_SUPPORTED_ACTION");
+                }
                 if (op.choice === "DONE") {
                     page = exports.BrowserObservation.parse(await observeFresh());
                     // Partial observations can support individual guarded actions, not completion.
@@ -596,7 +668,7 @@ async function runBrowserUse(raw, deps, signal) {
                         if (name === "page_select")
                             args.option_ref = selected.option;
                         if (name === "page_type") {
-                            const matches = input.fields.filter((f) => normalizeLabel(f.label) === normalizeLabel(selected.element.label));
+                            const matches = fieldValues.filter((f) => normalizeLabel(f.label) === normalizeLabel(selected.element.label));
                             if (matches.length > 1 ||
                                 page.elements.filter((e) => normalizeLabel(e.label) === normalizeLabel(selected.element.label) &&
                                     e.operations.includes("TYPE_TEXT")).length !== 1) {
@@ -699,6 +771,9 @@ async function runBrowserUse(raw, deps, signal) {
                         lastAction.operation = "FOCUS";
                     }
                     lastAction.outcome = "confirmed";
+                    // Cache only confirmed typing, never an answer generated against a stale target.
+                    if (name === 'page_type' && !focusOnly && actionTarget && typeof args.text === 'string' && fieldValues.length < 60 && !fieldValues.some(f => normalizeLabel(f.label) === normalizeLabel(actionTarget.label)))
+                        fieldValues.push({ label: actionTarget.label, text: args.text });
                     emit({ phase: "action", operationId, requestId: request.requestId, operation: completedOperation, outcome: "confirmed" });
                     lastConfirmedAction = {
                         operationId,
@@ -710,6 +785,8 @@ async function runBrowserUse(raw, deps, signal) {
                     // If post-action observation failed, preserve confirmed execution and only read again.
                     page = exports.BrowserObservation.parse(action.observation ??
                         (await observeFresh()));
+                    if (deps.recover && name === 'page_type' && !focusOnly)
+                        await settlePage();
                     if (actionTarget && !actionTarget.sensitive && page.url === actionPage.url) {
                         const matches = page.elements.filter(e => e.label === actionTarget.label && e.role === actionTarget.role && e.tag === actionTarget.tag);
                         const after = matches.length === 1 ? matches[0] : undefined;
@@ -735,8 +812,11 @@ async function runBrowserUse(raw, deps, signal) {
                 noProgress = changed || op.choice === "WAIT" ? 0 : noProgress + 1;
                 if (waitStreak >= 10)
                     return result("blocked", "WAIT_BUDGET");
-                if (noProgress >= 3)
+                if (noProgress >= 3) {
+                    if (await recoverLocally("NO_PROGRESS"))
+                        return undefined;
                     return result("blocked", "NO_PROGRESS");
+                }
                 return undefined;
             },
         });

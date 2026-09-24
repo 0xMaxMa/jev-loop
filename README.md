@@ -212,3 +212,20 @@ is reported separately as `owner_acknowledged: true`, not fabricated completion.
 Computer Use accepts `preparedInputs` entries with `application` (bundle ID), `label`, `text`, and optional `role`/`windowTitle`. A value bypasses text resolution only when the current observation identifies exactly one matching field. A new goal revision invalidates the old plan. Missing values return `needs_input` for the calling agent to resolve; the core does not require a separate Thinking model.
 
 Hosts may supply `observation(state)` and `snapshot(state, signal)` callbacks. The loop calls the latter before asking for missing text, reporting a completion candidate, or yielding a blocked decision, when the MCP observation advertises screenshot support. The host attaches the scoped window image to the parent agent, which can interpret the screen and prepare remaining inputs. Pixels never authorize actions or replace fresh MCP target/generation checks. System audio is not part of this contract.
+
+### Browser recovery inside the loop
+
+Browser runs accept optional `resolveFieldText`, `recover` and `snapshot` host
+callbacks. Prepared values bypass text inference. The loop waits and observes
+again after typing, refreshes before treating a blocked decision as a failure,
+and permits at most two local recovery plans. A plan supplies bounded guidance
+and literal values for unique visible fields, never executable operations or a
+replacement goal. Confirmed field values are reused; stale attempts are not cached.
+Unknown mutation outcomes stop immediately without recovery or replay. Missing
+facts still return `FIELD_TEXT_REQUIRED` to the parent, and completion still
+requires independent verification.
+
+`@0xmaxma/jev-loop/browser-thinking` provides tool-free field and recovery
+reasoning backed by the shared Thinking transport. Recovery may include a single
+scoped screenshot as actual multimodal content. No credentials are stored in the
+loop; the host supplies model configuration and authenticated browser access.

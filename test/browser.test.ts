@@ -931,3 +931,25 @@ test('repeated text replacements offer other controls despite unrelated DOM chan
  const r=await runBrowserUse({goal:'Fill then apply',scope,fields:[{label:'Name',text:'same'}]},f.deps,new AbortController().signal);
  assert.equal(r.reason,'COMPLETION_CANDIDATE');assert.equal(f.calls.filter(c=>c.name==='page_type').length,2);assert.equal(f.calls.filter(c=>c.name==='page_click').length,1);
 });
+
+test('blocked loop refreshes then thinks locally and keeps literal recovery values separate from guidance',async()=>{
+ const f=fixture(['BLOCKED','TYPE_TEXT','DONE']);let calls=0;
+ f.deps.recover=async r=>{calls++;assert.equal(r.reason,'NO_SUPPORTED_ACTION');assert.equal(r.goal,'Find the named place');return {guidance:'Use the exact query and inspect suggestions.',fields:[{label:'Name',text:'Osaka'}]};};
+ const r=await runBrowserUse({goal:'Find the named place',scope},f.deps,new AbortController().signal);
+ assert.equal(calls,1);assert.equal(r.reason,'COMPLETION_CANDIDATE');assert.equal(f.calls.find(c=>c.name==='page_type')?.args.text,'Osaka');
+ assert.ok(r.trace?.events.some(e=>e.reason==='THINKING_REPLAN'));
+});
+test('local recovery is bounded and never runs after an unknown mutation',async()=>{
+ for(const unknown of [false,true]){
+  const f=fixture(unknown?['CLICK']:['BLOCKED','BLOCKED','BLOCKED','BLOCKED']);let thoughts=0;
+  f.deps.recover=async()=>{thoughts++;return {guidance:'Inspect another control '+thoughts,fields:[]};};
+  const original=f.deps.call;f.deps.call=async(n,a,s)=>n==='page_click'&&unknown?{state:'unknown'}:original(n,a,s);
+  const r=await runBrowserUse({goal:'Find place',scope},f.deps,new AbortController().signal);
+  assert.equal(thoughts,unknown?0:2);assert.equal(r.reason,unknown?'OUTCOME_UNKNOWN':'NO_SUPPORTED_ACTION');
+ }
+});
+test('missing facts return to parent without fabricated field text',async()=>{
+ const f=fixture(['TYPE_TEXT']);f.deps.resolveFieldText=async()=>({text:null});
+ const r=await runBrowserUse({goal:'Enter an unknown child age',scope},f.deps,new AbortController().signal);
+ assert.equal(r.reason,'FIELD_TEXT_REQUIRED');assert.equal(f.calls.filter(c=>c.name==='page_type').length,0);
+});

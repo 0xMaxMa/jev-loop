@@ -252,7 +252,34 @@ export type FieldTextRequest = {
     };
     recent_actions?: unknown[];
 };
+export type BrowserRecoveryRequest = {
+    goal: string;
+    reason: string;
+    page: Observation;
+    recent_actions: unknown[];
+    supplied_fields: Array<{
+        label: string;
+        text: string;
+    }>;
+    screenshot?: {
+        mimeType: 'image/png';
+        data: string;
+    };
+};
+export type BrowserRecoveryPlan = {
+    guidance: string | null;
+    fields: Array<{
+        label: string;
+        text: string;
+    }>;
+};
 export type BrowserUseDependencies = {
+    /** Optional tool-free reasoning. Suggestions never execute actions or replace the goal. */
+    recover?: (request: BrowserRecoveryRequest, signal: AbortSignal) => Promise<BrowserRecoveryPlan>;
+    snapshot?: (leaseToken: string, signal: AbortSignal) => Promise<{
+        mimeType: 'image/png';
+        data: string;
+    }>;
     /** Private host sink; events contain no page text, labels or field values. */
     trace?: (event: BrowserTraceEvent) => void;
     interruptSignal?: AbortSignal;
