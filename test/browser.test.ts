@@ -1069,7 +1069,7 @@ test('three unsupported decisions transfer browser control to Thinking with scre
  f.deps.snapshot=async()=>({mimeType:'image/png',data:'aA=='});
  f.deps.decideAction=async req=>{assert.equal(req.screenshot?.data,'aA==');count++;return {action:count===1?'CLICK:e1':'DONE',text:null};};
  const r=await runBrowserUse({contractVersion:1,goal:'Submit',scope},f.deps,new AbortController().signal);
- assert.equal(r.evaluations,3);assert.equal(count,2);assert.equal(r.steps,1);assert.equal(r.status,'needs_verification');
+ assert.equal(r.evaluations,4);assert.equal(count,1);assert.equal(r.steps,1);assert.equal(r.status,'needs_verification');
 });
 test('browser Thinking null stays waiting and never executes arbitrary model action',async()=>{
  for(const action of [null,'arbitrary:execute']){
@@ -1077,4 +1077,10 @@ test('browser Thinking null stays waiting and never executes arbitrary model act
  const r=await runBrowserUse({contractVersion:1,goal:'Submit',scope},f.deps,new AbortController().signal);
  assert.equal(r.reason,action===null?'THINKING_WAITING_INPUT':'INVALID_DECISION');assert.equal(r.steps,0);
  }
+});
+
+test('control slice returns fresh evidence after one action without claiming success',async()=>{
+ const f=fixture(['CLICK','CLICK','DONE']);
+ const r=await runBrowserUse({goal:'Continue',scope,yieldAfterAction:true},f.deps,new AbortController().signal);
+ assert.equal(r.reason,'COMMAND_WAITING_INPUT');assert.equal(r.steps,1);assert.equal(r.evaluations,1);assert.equal(r.status,'needs_verification');assert.equal(r.observation?.text,'Submitted');
 });

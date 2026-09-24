@@ -242,14 +242,19 @@ reference context; they retain authorization, task lifecycle, durable mutation
 receipts and independent completion verification. Thinking cannot execute tools,
 change the goal, grant consent, or resolve an unknown action outcome.
 
-### Direct Thinking takeover
+### One-action Thinking fallback
 
 Browser and Computer Use hosts can supply `decideAction` in addition to Jev
 `evaluate`. Three consecutive attempts without observed progress transfer the
-current command to Thinking. Three successful/progressing actions do not trigger
-this transfer. The mode stays with Thinking for that command; a new command starts
-with Jev again. Thinking is bounded to eight decisions and three consecutive
-no-progress results, then returns `THINKING_WAITING_INPUT`.
+next decision to Thinking. Three successful/progressing actions do not trigger
+this fallback. Thinking chooses one action, then returns control to Jev. Another
+three no-progress outcomes after that fallback yield `THINKING_WAITING_INPUT`
+instead of repeatedly invoking Thinking. A new command starts with Jev again.
+
+Hosts can set `yieldAfterAction: true` to return `COMMAND_WAITING_INPUT` after
+one confirmed mutation with fresh evidence. The host agent or user chooses the
+next command on the same session. This return is not a success claim. Unknown
+mutations remain fenced and never yield an executable continuation.
 
 `@0xmaxma/jev-loop/action-thinking` exports `thinkAction` and `thinkChoices`.
 The latter batches up to eight independent choice questions in one multimodal

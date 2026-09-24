@@ -11,7 +11,7 @@ exports.COMPUTER_USE_CONTRACT_VERSION = 1;
 const Control = zod_1.z.object({ ref: zod_1.z.string().min(1).max(100), label: zod_1.z.string().max(500), role: zod_1.z.string().max(100), value: zod_1.z.string().max(2000).optional(), focused: zod_1.z.boolean().optional(), actions: zod_1.z.array(zod_1.z.enum(['press', 'type'])), sensitive: zod_1.z.boolean().optional() });
 exports.ComputerObservation = zod_1.z.object({ supportedActions: zod_1.z.array(zod_1.z.enum(['scroll:up', 'scroll:down', 'navigate:back', 'navigate:forward'])).max(4).optional(), screenshotAvailable: zod_1.z.boolean().optional(), generation: zod_1.z.string().min(1), application: zod_1.z.string(), controls: zod_1.z.array(Control).max(150), focusedControl: zod_1.z.object({ ref: zod_1.z.string().max(100).optional(), role: zod_1.z.string().max(100), label: zod_1.z.string().max(500), sensitive: zod_1.z.boolean().optional() }).optional(), windowTitle: zod_1.z.string().max(500).optional(), text: zod_1.z.array(zod_1.z.string().max(300)).max(80).optional(), truncated: zod_1.z.boolean(), platform: zod_1.z.object({ os: zod_1.z.string(), osVersion: zod_1.z.string(), appVersion: zod_1.z.string().optional() }).optional(), apps: zod_1.z.array(zod_1.z.object({ id: zod_1.z.string(), name: zod_1.z.string() })).max(100) });
 const PreparedInput = zod_1.z.object({ application: zod_1.z.string().min(1).max(200), label: zod_1.z.string().min(1).max(500), text: zod_1.z.string().max(2000), role: zod_1.z.string().max(100).optional(), windowTitle: zod_1.z.string().max(500).optional() }).strict();
-const Input = zod_1.z.object({ preparedInputs: zod_1.z.array(PreparedInput).max(30).default([]), goal: zod_1.z.string().min(1).max(16000), revision: zod_1.z.number().int().positive().default(1), maxSteps: zod_1.z.number().int().min(1).max(100).default(30), timeoutMs: zod_1.z.number().int().min(1).max(600000).default(120000) }).strict();
+const Input = zod_1.z.object({ yieldAfterAction: zod_1.z.boolean().default(false), preparedInputs: zod_1.z.array(PreparedInput).max(30).default([]), goal: zod_1.z.string().min(1).max(16000), revision: zod_1.z.number().int().positive().default(1), maxSteps: zod_1.z.number().int().min(1).max(100).default(30), timeoutMs: zod_1.z.number().int().min(1).max(600000).default(120000) }).strict();
 const Choice = zod_1.z.object({ choice: zod_1.z.string(), confidence: zod_1.z.number().min(0).max(1), probabilities: zod_1.z.record(zod_1.z.number().min(0).max(1)) });
 const fingerprint = (s) => JSON.stringify([s.application, s.windowTitle, s.text, s.supportedActions, s.focusedControl && { role: s.focusedControl.role, label: s.focusedControl.label }, s.controls.map(({ ref, ...c }) => c), s.truncated]);
 async function runComputerUse(raw, deps, signal) {
@@ -148,7 +148,7 @@ async function runComputerUse(raw, deps, signal) {
                     check();
                     deps.observation?.(fresh);
                     if (fingerprint(fresh) !== fingerprint(state) || JSON.stringify(fresh.controls.map(c => c.ref)) !== JSON.stringify(state.controls.map(c => c.ref))) {
-                        handover.progress(false);
+                        handover.complete();
                         last = fresh;
                         emit('waiting', { reason: 'THINKING_CONTEXT_CHANGED' });
                         return { action: { action: 'WAIT', generation: fresh.generation, revision, targets } };
@@ -174,6 +174,8 @@ async function runComputerUse(raw, deps, signal) {
                 update();
                 if (goal.revision !== d.revision)
                     return;
+                if (d.direct)
+                    handover.complete();
                 if (d.action === 'WAIT') {
                     if (handover.available && last)
                         previous = { signature: fingerprint(last), identity: 'wait', action: { kind: 'WAIT' } };
@@ -313,6 +315,13 @@ async function runComputerUse(raw, deps, signal) {
                 previous = { signature: fingerprint(last), identity: identity(last, action), action, field: last?.controls.find(c => c.ref === action.ref) };
                 steps++;
                 emit('acted', { ...summary(action), operationId, outcome: 'completed', elapsedMs: Date.now() - started });
+                if (input.yieldAfterAction) {
+                    last = exports.ComputerObservation.parse(await call('computer_observe'));
+                    check();
+                    deps.observation?.(last);
+                    await capture();
+                    return result('needs_input', 'COMMAND_WAITING_INPUT');
+                }
             }
         });
     }

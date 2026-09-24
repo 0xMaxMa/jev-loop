@@ -162,14 +162,14 @@ test('missing field values attach a snapshot before asking the parent without Th
  const result=await runComputerUse({goal:'Write a note'},f.deps,new AbortController().signal);assert.equal(result.status,'needs_input');assert.equal(captures,1);assert.equal(f.calls.filter(x=>x.name==='computer_action').length,0);
 });
 
-test('three blocked Jev decisions hand over once; direct actions never ask Jev again',async()=>{
+test('three blocked Jev decisions get one Thinking action then return to Jev',async()=>{
  const f=fixture(['BLOCKED','BLOCKED','BLOCKED']);let decisions=0,reads=0;
  Object.assign(f.state,{screenshotAvailable:true});
  f.deps.snapshot=async()=>{};
  f.deps.decideAction=async req=>{decisions++;assert.equal(req.goal,'Search milk');return decisions===1?{action:'type:c1',text:'milk'}:{action:'DONE',text:null};};
  const call=f.deps.call;f.deps.call=async(n,a,s)=>{const r=await call(n,a,s);if(n==='computer_observe')return {...f.state,generation:'fresh-'+(++reads)};if(n==='computer_action'){assert.equal(a.generation,'fresh-'+reads);f.state.controls[0].value='milk';}return r;};
  const r=await runComputerUse({goal:'Search milk'},f.deps,new AbortController().signal);
- assert.equal(r.evaluations,3);assert.equal(decisions,2);assert.equal(r.steps,1);assert.equal(r.status,'needs_verification');
+ assert.equal(r.evaluations,4);assert.equal(decisions,1);assert.equal(r.steps,1);assert.equal(r.status,'needs_verification');
  assert.equal(f.calls.filter(c=>c.name==='computer_action').length,1);
  assert.equal(r.trace.events.filter(e=>e.reason==='THINKING_TAKEOVER').length,1);
 });
@@ -186,9 +186,9 @@ test('unknown result never hands over or replays even after two no-effect action
  const r=await runComputerUse({goal:'Move'},f.deps,new AbortController().signal);assert.equal(r.status,'needs_reconciliation');assert.equal(f.calls.filter(c=>c.name==='computer_action').length,2);
 });
 test('Thinking takeover is bounded and returns waiting input, not a new Jev loop',async()=>{
- const f=fixture(['BLOCKED','BLOCKED','BLOCKED']);let calls=0;
+ const f=fixture(['BLOCKED','BLOCKED','BLOCKED','BLOCKED','BLOCKED','BLOCKED']);let calls=0;
  f.deps.decideAction=async()=>{calls++;return {action:'WAIT',text:null};};
- const r=await runComputerUse({goal:'Continue'},f.deps,new AbortController().signal);assert.equal(r.reason,'THINKING_WAITING_INPUT');assert.equal(r.status,'needs_input');assert.equal(calls,3);assert.equal(r.evaluations,3);
+ const r=await runComputerUse({goal:'Continue'},f.deps,new AbortController().signal);assert.equal(r.reason,'THINKING_WAITING_INPUT');assert.equal(r.status,'needs_input');assert.equal(calls,1);assert.equal(r.evaluations,5);
 });
 test('new navigation actions are offered only when native observation advertises them',async()=>{
  const f=fixture(['scroll:down','navigate:back','DONE']);Object.assign(f.state,{supportedActions:['scroll:down','navigate:back']});
@@ -198,4 +198,10 @@ test('new navigation actions are offered only when native observation advertises
 test('new command during direct Thinking discards its old action',async()=>{
  const f=fixture(['BLOCKED','BLOCKED','BLOCKED','DONE']);f.deps.decideAction=async()=>{f.update('Inspect only');return {action:'type:c1',text:'old'};};
  const r=await runComputerUse({goal:'Type'},f.deps,new AbortController().signal);assert.equal(r.revision,2);assert.equal(r.steps,0);
+});
+
+test('control slice returns after one confirmed action and captures its screen',async()=>{
+ const f=fixture(['key:enter','key:down']);let captures=0;Object.assign(f.state,{screenshotAvailable:true});f.deps.snapshot=async()=>{captures++;};
+ const r=await runComputerUse({goal:'Continue',yieldAfterAction:true},f.deps,new AbortController().signal);
+ assert.equal(r.reason,'COMMAND_WAITING_INPUT');assert.equal(r.steps,1);assert.equal(r.evaluations,1);assert.equal(captures,1);assert.notEqual(r.status,'succeeded');
 });

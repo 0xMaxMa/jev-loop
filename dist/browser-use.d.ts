@@ -336,6 +336,7 @@ declare const Input: z.ZodObject<{
     }>, "many">>;
     maxStaleRetries: z.ZodDefault<z.ZodNumber>;
     maxTextCalls: z.ZodDefault<z.ZodNumber>;
+    yieldAfterAction: z.ZodDefault<z.ZodBoolean>;
     maxSteps: z.ZodDefault<z.ZodNumber>;
     maxEvaluations: z.ZodDefault<z.ZodNumber>;
     timeoutMs: z.ZodDefault<z.ZodNumber>;
@@ -355,6 +356,7 @@ declare const Input: z.ZodObject<{
     }[];
     maxStaleRetries: number;
     maxTextCalls: number;
+    yieldAfterAction: boolean;
     maxSteps: number;
     maxEvaluations: number;
     timeoutMs: number;
@@ -376,6 +378,7 @@ declare const Input: z.ZodObject<{
     }[] | undefined;
     maxStaleRetries?: number | undefined;
     maxTextCalls?: number | undefined;
+    yieldAfterAction?: boolean | undefined;
     maxSteps?: number | undefined;
     maxEvaluations?: number | undefined;
     timeoutMs?: number | undefined;

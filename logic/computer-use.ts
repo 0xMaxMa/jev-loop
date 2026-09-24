@@ -33,7 +33,7 @@ export interface ComputerUseDependencies {
 }
 export interface ComputerUseResult {status:'succeeded'|'needs_verification'|'needs_input'|'blocked'|'cancelled'|'needs_reconciliation';reason:string;revision:number;steps:number;evaluations:number;trace:{events:ComputerProgress[];truncated:boolean};operationId?:string;observation?:ComputerState}
 const PreparedInput=z.object({application:z.string().min(1).max(200),label:z.string().min(1).max(500),text:z.string().max(2000),role:z.string().max(100).optional(),windowTitle:z.string().max(500).optional()}).strict();
-const Input=z.object({preparedInputs:z.array(PreparedInput).max(30).default([]),goal:z.string().min(1).max(16000),revision:z.number().int().positive().default(1),maxSteps:z.number().int().min(1).max(100).default(30),timeoutMs:z.number().int().min(1).max(600000).default(120000)}).strict();
+const Input=z.object({yieldAfterAction:z.boolean().default(false),preparedInputs:z.array(PreparedInput).max(30).default([]),goal:z.string().min(1).max(16000),revision:z.number().int().positive().default(1),maxSteps:z.number().int().min(1).max(100).default(30),timeoutMs:z.number().int().min(1).max(600000).default(120000)}).strict();
 const Choice=z.object({choice:z.string(),confidence:z.number().min(0).max(1),probabilities:z.record(z.number().min(0).max(1))});
 const fingerprint=(s:ComputerState)=>JSON.stringify([s.application,s.windowTitle,s.text,s.supportedActions,s.focusedControl&&{role:s.focusedControl.role,label:s.focusedControl.label},s.controls.map(({ref,...c})=>c),s.truncated]);
 export async function runComputerUse(raw:unknown,deps:ComputerUseDependencies,signal:AbortSignal):Promise<ComputerUseResult>{
@@ -106,7 +106,7 @@ export async function runComputerUse(raw:unknown,deps:ComputerUseDependencies,si
      if(chosen.action===null)return {result:result('needs_input','THINKING_WAITING_INPUT')};
      if(!Object.hasOwn(criteria,chosen.action)||!(chosen.text===null||typeof chosen.text==='string'&&chosen.text.length<=2000))throw Error('INVALID_DECISION');
      const fresh=ComputerObservation.parse(await call('computer_observe'));check();deps.observation?.(fresh);
-     if(fingerprint(fresh)!==fingerprint(state)||JSON.stringify(fresh.controls.map(c=>c.ref))!==JSON.stringify(state.controls.map(c=>c.ref))){handover.progress(false);last=fresh;emit('waiting',{reason:'THINKING_CONTEXT_CHANGED'});return {action:{action:'WAIT',generation:fresh.generation,revision,targets}};}
+     if(fingerprint(fresh)!==fingerprint(state)||JSON.stringify(fresh.controls.map(c=>c.ref))!==JSON.stringify(state.controls.map(c=>c.ref))){handover.complete();last=fresh;emit('waiting',{reason:'THINKING_CONTEXT_CHANGED'});return {action:{action:'WAIT',generation:fresh.generation,revision,targets}};}
      emit('decided',{reason:'THINKING_ACTION',...(targets.has(chosen.action)?summary(targets.get(chosen.action)!):{action:chosen.action as ComputerProgress['action']})});
      last=fresh;return {action:{action:chosen.action,generation:fresh.generation,revision,targets,text:chosen.text,direct:true}};
     }
@@ -120,6 +120,7 @@ export async function runComputerUse(raw:unknown,deps:ComputerUseDependencies,si
    },
    execute:async(d,ctx)=>{
     check();checkInterruption(deps.interruptSignal);update();if(goal.revision!==d.revision)return;
+    if(d.direct)handover.complete();
     if(d.action==='WAIT'){if(handover.available&&last)previous={signature:fingerprint(last),identity:'wait',action:{kind:'WAIT'}};emit('waiting');await new Promise<void>((resolve,reject)=>{const stop=()=>{clearTimeout(t);reject(Error('CANCELLED'));};const t=setTimeout(()=>{runSignal.removeEventListener('abort',stop);resolve();},250);runSignal.addEventListener('abort',stop,{once:true});});return;}
     if(d.action==='BLOCKED'){if(handover.available){handover.progress(false);if(handover.active)return result('needs_input','THINKING_WAITING_INPUT');emit('waiting',{reason:'NO_SUPPORTED_ACTION'});return;}await capture();return result('blocked','NO_SUPPORTED_ACTION');}
     if(d.action==='DONE'){
@@ -172,6 +173,7 @@ export async function runComputerUse(raw:unknown,deps:ComputerUseDependencies,si
     }
     previous={signature:fingerprint(last!),identity:identity(last!,action),action,field:last?.controls.find(c=>c.ref===action.ref)};
     steps++;emit('acted',{...summary(action),operationId,outcome:'completed',elapsedMs:Date.now()-started});
+    if(input.yieldAfterAction){last=ComputerObservation.parse(await call('computer_observe'));check();deps.observation?.(last);await capture();return result('needs_input','COMMAND_WAITING_INPUT');}
    }
   });
  }catch(error){return result(pending||(error instanceof Error&&error.message==='COMPUTER_RECONCILIATION_REQUIRED')?'needs_reconciliation':(signal.aborted||deps.interruptSignal?.aborted)?'cancelled':'blocked',pending?'OUTCOME_UNKNOWN':deps.interruptSignal?.aborted?'REVISION_SUPERSEDED':signal.aborted?'CANCELLED':runSignal.aborted?'TIMEOUT':error instanceof Error&&/^[A-Z_]+$/.test(error.message)?error.message:'COMPUTER_USE_FAILED');}

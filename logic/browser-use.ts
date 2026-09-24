@@ -172,6 +172,7 @@ const Input = z
       .default([]),
     maxStaleRetries: z.number().int().min(0).max(10).default(2),
     maxTextCalls: z.number().int().min(0).max(60).default(10),
+    yieldAfterAction: z.boolean().default(false),
     maxSteps: z.number().int().min(1).max(100).default(30),
     maxEvaluations: z.number().int().min(1).max(150).default(50),
     timeoutMs: z.number().int().min(1000).max(600000).default(120000),
@@ -504,7 +505,7 @@ export async function runBrowserUse(
     // Never reason into replaying a mutation whose effect has not been established.
     if(!page||lastAction?.outcome==='unknown')return false;
     if(handover.available){
-      if(handover.active)return false;
+      if(handover.active||handover.exhausted)return false;
       // Suppressed/blocked choices count as attempts, never as replayed mutations.
       if(handover.failures<3)handover.progress(false);
       if(handover.enter())emit({phase:'recovery',reason:'THINKING_TAKEOVER'});
@@ -721,7 +722,7 @@ export async function runBrowserUse(
         if(!Object.hasOwn(actions,decision.action)||!(decision.text===null||typeof decision.text==='string'&&decision.text.length<=2000))throw Error('INVALID_DECISION');
         const reasoningPage=page;page=BrowserObservation.parse(await observeFresh());
         if(fingerprint(page)!==fingerprint(reasoningPage)){
-          handover.progress(false);emit({phase:'recovery',reason:'THINKING_CONTEXT_CHANGED'});
+          handover.complete();emit({phase:'recovery',reason:'THINKING_CONTEXT_CHANGED'});
           return {action:{op:{choice:'WAIT',confidence:1,probabilities:{WAIT:1}},validated:{},targets,before,request,actionPageUrl}};
         }
         const separator=decision.action.indexOf(':'),opName=separator<0?decision.action:decision.action.slice(0,separator),target=separator<0?undefined:decision.action.slice(separator+1);
@@ -1035,7 +1036,9 @@ export async function runBrowserUse(
         return result('blocked',handover.active?'THINKING_WAITING_INPUT':'NO_PROGRESS');
       }
       // Only observed progress resets the consecutive stale budget. Global bounds still apply.
+      if(direct)handover.complete();
       handover.progress(changed);
+      if(input.yieldAfterAction && op.choice!=="WAIT")return result('needs_verification','COMMAND_WAITING_INPUT');
       if(changed)consecutiveStale=0;
       waitStreak = op.choice === "WAIT" ? waitStreak + 1 : 0;
       noProgress = changed || op.choice === "WAIT" ? 0 : noProgress + 1;

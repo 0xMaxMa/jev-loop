@@ -1,4 +1,4 @@
-/** A mode is scoped to one user command. Progress resets failures, not ownership. */
+/** One fallback decision per command; a new command starts with Jev again. */
 export declare class Handover {
     readonly available: boolean;
     failures: number;
@@ -7,6 +7,7 @@ export declare class Handover {
     constructor(available: boolean);
     progress(changed: boolean): void;
     enter(): boolean;
+    complete(): void;
     get exhausted(): boolean;
     reset(): void;
 }

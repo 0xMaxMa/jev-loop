@@ -95,6 +95,7 @@ const Input = zod_1.z
         .default([]),
     maxStaleRetries: zod_1.z.number().int().min(0).max(10).default(2),
     maxTextCalls: zod_1.z.number().int().min(0).max(60).default(10),
+    yieldAfterAction: zod_1.z.boolean().default(false),
     maxSteps: zod_1.z.number().int().min(1).max(100).default(30),
     maxEvaluations: zod_1.z.number().int().min(1).max(150).default(50),
     timeoutMs: zod_1.z.number().int().min(1000).max(600000).default(120000),
@@ -377,7 +378,7 @@ async function runBrowserUse(raw, deps, signal) {
         if (!page || lastAction?.outcome === 'unknown')
             return false;
         if (handover.available) {
-            if (handover.active)
+            if (handover.active || handover.exhausted)
                 return false;
             // Suppressed/blocked choices count as attempts, never as replayed mutations.
             if (handover.failures < 3)
@@ -628,7 +629,7 @@ async function runBrowserUse(raw, deps, signal) {
                     const reasoningPage = page;
                     page = exports.BrowserObservation.parse(await observeFresh());
                     if (fingerprint(page) !== fingerprint(reasoningPage)) {
-                        handover.progress(false);
+                        handover.complete();
                         emit({ phase: 'recovery', reason: 'THINKING_CONTEXT_CHANGED' });
                         return { action: { op: { choice: 'WAIT', confidence: 1, probabilities: { WAIT: 1 } }, validated: {}, targets, before, request, actionPageUrl } };
                     }
@@ -944,7 +945,11 @@ async function runBrowserUse(raw, deps, signal) {
                     return result('blocked', handover.active ? 'THINKING_WAITING_INPUT' : 'NO_PROGRESS');
                 }
                 // Only observed progress resets the consecutive stale budget. Global bounds still apply.
+                if (direct)
+                    handover.complete();
                 handover.progress(changed);
+                if (input.yieldAfterAction && op.choice !== "WAIT")
+                    return result('needs_verification', 'COMMAND_WAITING_INPUT');
                 if (changed)
                     consecutiveStale = 0;
                 waitStreak = op.choice === "WAIT" ? waitStreak + 1 : 0;
