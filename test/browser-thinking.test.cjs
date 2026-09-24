@@ -16,3 +16,15 @@ test('recovery image is multimodal content, never encoded as ordinary page text'
   });
  }
 });
+test('large recovery observations are bounded explicitly without modifying literals or source',async()=>{
+ const fields=Array.from({length:60},(_,i)=>({label:'field '+i,text:'ข้อมูล'.repeat(200)}));
+ const input={goal:'Search and verify',page:{url:'https://fixture.test',text:'ก'.repeat(24000),elements:Array.from({length:150},(_,i)=>({ref:'e'+i,label:'field '+i,context:'บริบท'.repeat(100),value:'exact value '+i})),truncated:{text:false,elements:false}},supplied_fields:fields,recent_actions:Array.from({length:8},()=>({text:'literal'.repeat(200)}))};
+ const before=JSON.stringify(input);
+ await thinkBrowserRecovery(config,input,new AbortController().signal,async(_url,init)=>{
+  const body=JSON.parse(init.body),text=body.messages.at(-1).content,actual=JSON.parse(text);
+  assert(Buffer.byteLength(text)<=60000);assert.equal(actual.input_truncated,true);assert.equal(actual.goal,input.goal);
+  for(const field of actual.supplied_fields)assert.deepEqual(field,fields.find(f=>f.label===field.label));
+  assert.equal(JSON.stringify(input),before);
+  return response({guidance:null,fields:[]});
+ });
+});

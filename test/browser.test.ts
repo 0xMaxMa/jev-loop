@@ -1043,3 +1043,23 @@ test('recovery plan for a changed page is discarded before its field values are 
  assert.equal(r.reason,'FIELD_TEXT_REQUIRED');assert(!f.calls.some(c=>c.name==='page_type'));
  assert(r.trace?.events.some(e=>e.reason==='RECOVERY_CONTEXT_CHANGED'));
 });
+test('alternating UI states trigger recovery instead of exhausting the action budget',async()=>{
+ const f=fixture(Array(12).fill('CLICK'));const call=f.deps.call;let clicks=0,recovered=0;
+ f.deps.call=async(name,args,signal)=>{
+  if(name==='page_click'){clicks++;f.page.text=clicks%2?'Dialog open':'Dialog closed';return {state:'completed',result:{ok:true,observation:structuredClone(f.page)}};}
+  return call(name,args,signal);
+ };
+ f.deps.recover=async r=>{assert.equal(r.reason,'REPEATED_STATE');recovered++;return {guidance:null,fields:[]};};
+ const r=await runBrowserUse({goal:'Finish form',scope,maxSteps:12},f.deps,new AbortController().signal);
+ assert.equal(r.reason,'NO_PROGRESS');assert.equal(recovered,1);assert.equal(clicks,5);
+ assert(r.trace?.events.some(e=>e.reason==='REPEATED_STATE'));
+});
+test('changing counter values do not look like a repeated UI state',async()=>{
+ const f=fixture([...Array(6).fill('CLICK'),'DONE']);const call=f.deps.call;let count=0;
+ f.deps.call=async(name,args,signal)=>{
+  if(name==='page_click'){f.page.elements[0].context='Count '+(++count);return {state:'completed',result:{ok:true,observation:structuredClone(f.page)}};}
+  return call(name,args,signal);
+ };
+ const r=await runBrowserUse({goal:'Set count to six',scope},f.deps,new AbortController().signal);
+ assert.equal(r.reason,'COMPLETION_CANDIDATE');assert.equal(count,6);
+});

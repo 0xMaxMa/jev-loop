@@ -241,6 +241,7 @@ async function runBrowserUse(raw, deps, signal) {
     const history = [];
     const fieldValues = [...input.fields];
     const ineffectiveActions = new Map();
+    const visitedStates = new Map();
     let recoveryCalls = 0, refreshes = 0, guidance;
     const plans = new Set();
     const trace = { version: 1, events: [], truncated: false, sinkFailed: false };
@@ -863,6 +864,16 @@ async function runBrowserUse(raw, deps, signal) {
                 history.push({ ...actionContext, outcome: "confirmed", changed });
                 if (history.length > 10)
                     history.splice(0, history.length - 10);
+                // A changing page can still be an A/B cycle (e.g. reopen/close a dialog).
+                // Count complete observable states; changing counter values remain distinct.
+                const stateKey = fingerprint(page), visits = (visitedStates.get(stateKey) ?? 0) + (op.choice === "WAIT" ? 0 : 1);
+                visitedStates.set(stateKey, visits);
+                if (op.choice !== "WAIT" && visits >= 3) {
+                    emit({ phase: 'recovery', reason: 'REPEATED_STATE' });
+                    if (await recoverLocally('REPEATED_STATE'))
+                        return undefined;
+                    return result('blocked', 'NO_PROGRESS');
+                }
                 // Only observed progress resets the consecutive stale budget. Global bounds still apply.
                 if (changed)
                     consecutiveStale = 0;
