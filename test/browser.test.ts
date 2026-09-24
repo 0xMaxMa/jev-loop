@@ -992,3 +992,46 @@ test('unchanged click is not dispatched again even when recovery repeats guidanc
  assert.equal(clicks,1);assert.equal(thinking,2);assert.equal(r.reason,'NO_PROGRESS');
  assert(r.trace?.events.some(e=>e.reason==='REPEATED_NO_EFFECT'));
 });
+
+test('an already populated field is observed instead of retyped',async()=>{
+ for(const example of [
+  {url:'https://shop.fixture.test',label:'Search products',value:'wireless mouse'},
+  {url:'https://mail.fixture.test',label:'Search mail',value:'from:example.com'},
+  {url:'https://form.fixture.test',label:'City',value:'Osaka'},
+ ]){
+  const f=fixture(['TYPE_TEXT','DONE']);f.page.url=example.url;
+  Object.assign(f.page.elements[0],{label:example.label,value:example.value,value_truncated:false});
+  const r=await runBrowserUse({goal:'Use the existing field value',scope,fields:[{label:example.label,text:example.value}]},f.deps,new AbortController().signal);
+  assert.equal(r.reason,'COMPLETION_CANDIDATE');assert(!f.calls.some(c=>c.name==='page_type'));
+  assert(r.trace?.events.some(e=>e.reason==='FIELD_VALUE_ALREADY_PRESENT'));
+ }
+});
+test('unchanged populated field cannot spin indefinitely',async()=>{
+ const f=fixture(['TYPE_TEXT','TYPE_TEXT','TYPE_TEXT']);f.page.elements[0].value='Osaka';
+ const r=await runBrowserUse({goal:'Find destination',scope,fields:[{label:'Name',text:'Osaka'}]},f.deps,new AbortController().signal);
+ assert.equal(r.reason,'NO_PROGRESS');assert.equal(r.steps,0);assert.equal(r.evaluations,2);
+ assert(!f.calls.some(c=>c.name==='page_type'));
+});
+test('thinking result uses freshly observed generation and reference for the same field',async()=>{
+ const f=fixture(['TYPE_TEXT','DONE']);let thoughts=0;
+ f.deps.resolveFieldText=async()=>{thoughts++;f.page.generation='g-after-thinking';f.page.elements[0].ref='fresh-ref';return {text:'Osaka'};};
+ const r=await runBrowserUse({goal:'Fill destination',scope},f.deps,new AbortController().signal);
+ assert.equal(thoughts,1);assert.equal(r.reason,'COMPLETION_CANDIDATE');
+ const action=f.calls.find(c=>c.name==='page_type');assert.equal(action?.args.generation,'g-after-thinking');assert.equal(action?.args.ref,'fresh-ref');
+ assert(r.trace?.events.some(e=>e.reason==='FIELD_CONTEXT_REVALIDATED'));
+});
+test('thinking result is discarded when navigation or field context changes',async()=>{
+ for(const change of ['url','context','value','sensitive','readonly','duplicate']){
+  const f=fixture(['TYPE_TEXT','DONE']);
+  f.deps.resolveFieldText=async()=>{
+   if(change==='url')f.page.url='https://different.fixture.test';
+   else if(change==='duplicate')f.page.elements.push({...f.page.elements[0],ref:'duplicate'});
+   else if(change==='sensitive'||change==='readonly')f.page.elements[0][change]=true;
+   else f.page.elements[0][change]='changed';
+   return {text:'obsolete'};
+  };
+  const r=await runBrowserUse({goal:'Fill field',scope},f.deps,new AbortController().signal);
+  assert(!f.calls.some(c=>c.name==='page_type'),change);
+  assert(r.trace?.events.some(e=>e.reason==='FIELD_CONTEXT_CHANGED'),change);
+ }
+});

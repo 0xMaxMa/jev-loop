@@ -479,6 +479,11 @@ export async function runBrowserUse(
       throw new BrowserUseError("OUTCOME_UNKNOWN");
     return (mutation ? r.result : r) as Record<string, unknown>;
   }
+  // References and generation may rotate during inference; semantic field state must not.
+  const fieldIdentity=(e:Observation['elements'][number])=>{
+    const {ref:_,...state}=e;
+    return JSON.stringify(state);
+  };
   const fingerprint=(p:Observation)=>JSON.stringify([p.url,p.text,p.elements,p.scroll]);
   async function settlePage():Promise<void>{
     const before=fingerprint(page!);
@@ -841,8 +846,20 @@ export async function runBrowserUse(
               if (resolved.text === null)
                 return result("blocked", "FIELD_TEXT_REQUIRED");
               args.text = resolved.text;
-
-              // The browser validates the observed target again after text generation.
+              const reasoningPage=page;
+              page=BrowserObservation.parse(await observeFresh());
+              check();checkInterruption(deps.interruptSignal);
+              const candidates=page.elements.filter(e=>normalizeLabel(e.label)===normalizeLabel(selected.element.label)&&e.operations.includes('TYPE_TEXT'));
+              const fresh=candidates.length===1?candidates[0]:undefined;
+              if(page.url!==reasoningPage.url||page.title!==reasoningPage.title||!fresh||fieldIdentity(fresh)!==fieldIdentity(selected.element)){
+                emit({phase:'field',requestId:request.requestId,reason:'FIELD_CONTEXT_CHANGED'});
+                // Discard the answer and decision. Never transplant text into a changed field.
+                return undefined;
+              }
+              args.ref=fresh.ref;args.generation=page.generation;
+              actionContext={...actionContext,target:{ref:fresh.ref,label:fresh.label,role:fresh.role??fresh.tag,context:fresh.context},previousValue:fresh.value};
+              emit({phase:'field',requestId:request.requestId,reason:'FIELD_CONTEXT_REVALIDATED'});
+              // Mutation still performs the browser's atomic generation/ownership check.
             }
             fieldRequest = undefined;
             args.replace = true;
@@ -854,6 +871,16 @@ export async function runBrowserUse(
         checkInterruption(deps.interruptSignal);
         const actionPage=page;
         const actionTarget=page.elements.find(e=>e.ref===args.ref);
+        if(name==='page_type'&&actionTarget&&!actionTarget.value_truncated&&typeof actionTarget.value==='string'&&actionTarget.value===args.text){
+          emit({phase:'field',requestId:request.requestId,reason:'FIELD_VALUE_ALREADY_PRESENT',valueMatched:true});
+          history.push({...actionContext,outcome:'not_executed',reason:'FIELD_VALUE_ALREADY_PRESENT'});
+          if(history.length>10)history.shift();
+          const current=fingerprint(page);
+          await settlePage();
+          noProgress=fingerprint(page)===current?noProgress+1:0;
+          if(noProgress>=2){if(await recoverLocally('FIELD_VALUE_ALREADY_PRESENT'))return undefined;return result('blocked','NO_PROGRESS');}
+          return undefined;
+        }
         const actionKey=JSON.stringify([page.url,name,actionTarget?.label,actionTarget?.role,args.text,args.option_ref]);
         if(ineffectiveActions.get(actionKey)===fingerprint(page)){
           emit({phase:'recovery',reason:'REPEATED_NO_EFFECT',operation:op.choice});
