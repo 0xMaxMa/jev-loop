@@ -384,7 +384,7 @@ export type BrowserUseResult = {
     };
     observation?: Observation;
 };
-export declare function decisionQuestions(page: Observation, goal?: string): {
+export declare function decisionQuestions(page: Observation, goal?: string, exhaustedTextFields?: Set<string>): {
     questions: Record<string, ChoiceQuestion>;
     targets: Map<string, {
         element: Observation["elements"][number];
