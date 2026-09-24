@@ -203,7 +203,7 @@ async function runComputerUse(raw, deps, signal) {
                     if (goal.revision !== d.revision)
                         return;
                     if (last.truncated || !deps.verify)
-                        return result('needs_verification', 'COMPLETION_CANDIDATE');
+                        return result('needs_verification', deps.decideAction ? 'COMMAND_WAITING_INPUT' : 'COMPLETION_CANDIDATE');
                     const verified = await (0, interrupt_js_1.interruptible)(verifySignal => deps.verify(last, goal.goal, verifySignal), runSignal, deps.interruptSignal);
                     check();
                     (0, interrupt_js_1.checkInterruption)(deps.interruptSignal);

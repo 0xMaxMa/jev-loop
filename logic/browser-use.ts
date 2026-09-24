@@ -782,7 +782,7 @@ export async function runBrowserUse(
         if (page.truncated.elements && page.truncated.viewport_elements !== false)
           return result("needs_verification", "OBSERVATION_TRUNCATED");
         if (!deps.verify)
-          return result("needs_verification", "COMPLETION_CANDIDATE");
+          return result("needs_verification", deps.decideAction?"COMMAND_WAITING_INPUT":"COMPLETION_CANDIDATE");
         const verified = z
           .boolean()
           .parse(await bounded((s) => deps.verify!(page!, s), 15000));

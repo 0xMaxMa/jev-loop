@@ -124,7 +124,7 @@ export async function runComputerUse(raw:unknown,deps:ComputerUseDependencies,si
     if(d.action==='BLOCKED'){if(handover.available){handover.progress(false);if(handover.active)return result('needs_input','THINKING_WAITING_INPUT');emit('waiting',{reason:'NO_SUPPORTED_ACTION'});return;}await capture();return result('blocked','NO_SUPPORTED_ACTION');}
     if(d.action==='DONE'){
      emit('verifying');last=ComputerObservation.parse(await call('computer_observe'));check();deps.observation?.(last);await capture();checkInterruption(deps.interruptSignal);update();if(goal.revision!==d.revision)return;
-     if(last.truncated||!deps.verify)return result('needs_verification','COMPLETION_CANDIDATE');
+     if(last.truncated||!deps.verify)return result('needs_verification',deps.decideAction?'COMMAND_WAITING_INPUT':'COMPLETION_CANDIDATE');
      const verified=await interruptible(verifySignal=>deps.verify!(last!,goal.goal,verifySignal),runSignal,deps.interruptSignal);check();checkInterruption(deps.interruptSignal);update();if(goal.revision!==d.revision)return;
      if(typeof verified!=='boolean')throw Error('INVALID_VERIFICATION');
      return result(verified?'succeeded':'needs_verification',verified?'VERIFIED':'VERIFICATION_FAILED');
