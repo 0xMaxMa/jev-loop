@@ -176,8 +176,11 @@ async function runComputerUse(raw, deps, signal) {
                         await capture();
                         return result('needs_input', 'FIELD_TEXT_REQUIRED');
                     }
-                    if (prepared.length !== 1)
+                    if (prepared.length !== 1) {
+                        await capture();
+                        (0, interrupt_js_1.checkInterruption)(deps.interruptSignal);
                         emit('thinking', summary(action));
+                    }
                     const text = prepared.length === 1 ? { text: prepared[0].text } : zod_1.z.object({ text: zod_1.z.string().max(2000).nullable() }).strict().parse(await ctx.think({ goal: goal.goal, control: target, application: last?.application, windowTitle: last?.windowTitle, visibleText: last?.text, controls: last?.controls }));
                     check();
                     (0, interrupt_js_1.checkInterruption)(deps.interruptSignal);
