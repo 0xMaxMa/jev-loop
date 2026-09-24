@@ -160,6 +160,7 @@ export interface ComputerProgress {
     status?: ComputerUseResult['status'];
 }
 export interface ComputerUseDependencies {
+    interruptSignal?: AbortSignal;
     call(name: string, args: Record<string, unknown>, signal: AbortSignal): Promise<unknown>;
     evaluate(request: {
         state: unknown;

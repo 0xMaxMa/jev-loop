@@ -7,6 +7,8 @@ export const TraceEvent=z.object({
   operation:z.string().regex(/^[A-Z_]{1,32}$/).optional(),
   model:z.string().max(200).optional(),elapsedMs:z.number().nonnegative().optional(),
   outcome:z.enum(['confirmed','unknown','not_executed']).optional(),
+  targetRef:z.string().max(100).optional(),
+  cause:z.string().regex(/^[A-Z][A-Z_0-9]{2,80}$/).optional(),
   reason:z.string().regex(/^[A-Z][A-Z_0-9]{2,80}$/).optional(),
   status:z.enum(['succeeded','blocked','cancelled','failed','needs_verification']).optional(),
   steps:z.number().int().nonnegative().optional(),evaluations:z.number().int().nonnegative().optional(),

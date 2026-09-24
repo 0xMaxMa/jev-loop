@@ -85,3 +85,34 @@ test('unchanged successful dispatches are observed and not offered endlessly',as
 test('trace sink errors cannot turn a confirmed action into an unknown mutation',async()=>{
  const f=fixture(['type:c1','DONE']);f.deps.progress=()=>{throw Error('sink offline');};const r=await runComputerUse({goal:'Draft a note'},f.deps,new AbortController().signal);assert.equal(r.status,'needs_verification');assert.equal(r.steps,1);assert.equal(r.operationId,undefined);
 });
+
+test('shared interruption cancels reasoning but preserves an unknown desktop action',async()=>{
+ for(const inFlight of [false,true]){
+  const f=fixture(['type:c1']),control=new AbortController(),call=f.deps.call;f.deps.interruptSignal=control.signal;
+  if(inFlight)f.deps.call=async(n,a,s)=>{if(n==='computer_action'){control.abort();return {state:'unknown'};}return call(n,a,s);};
+  else f.deps.thinking=async()=>{control.abort();return new Promise(()=>{});};
+  const r=await runComputerUse({goal:'Type note'},f.deps,new AbortController().signal);
+  assert.equal(r.reason,inFlight?'OUTCOME_UNKNOWN':'REVISION_SUPERSEDED');
+  if(!inFlight)assert(!f.calls.some(c=>c.name==='computer_action'));
+ }
+});
+test('speech interrupts verification without waiting for the model or reporting stale success',async()=>{
+ const f=fixture(['DONE']),control=new AbortController();f.deps.interruptSignal=control.signal;
+ f.deps.verify=async(_s,_g,signal)=>{control.abort();assert.equal(signal.aborted,true);return new Promise(()=>{});};
+ const r=await runComputerUse({goal:'Inspect note'},f.deps,new AbortController().signal);
+ assert.equal(r.reason,'REVISION_SUPERSEDED');assert.equal(r.status,'cancelled');assert(f.calls.some(c=>c.name==='computer_release'));
+});
+test('speech after the durable fence clears only an undispatched operation',async()=>{
+ const f=fixture(['type:c1']),control=new AbortController();f.deps.interruptSignal=control.signal;let operation='';
+ f.deps.beforeMutation=id=>{operation=id;control.abort();};
+ const r=await runComputerUse({goal:'Write note'},f.deps,new AbortController().signal);
+ assert.equal(r.reason,'REVISION_SUPERSEDED');assert(!f.calls.some(c=>c.name==='computer_action'));
+ assert(r.trace.events.some(e=>e.operationId===operation&&e.phase==='acted'&&e.outcome==='not_executed'));
+});
+test('speech during a confirmed desktop mutation waits for its result and never aborts the mutation',async()=>{
+ const f=fixture(['type:c1']),control=new AbortController(),call=f.deps.call;f.deps.interruptSignal=control.signal;
+ f.deps.call=async(n,a,s)=>{if(n==='computer_action'){control.abort();assert.equal(s.aborted,false);await new Promise(r=>setTimeout(r,10));return {state:'completed'};}return call(n,a,s);};
+ const r=await runComputerUse({goal:'Write note'},f.deps,new AbortController().signal);
+ assert.equal(r.reason,'REVISION_SUPERSEDED');assert.equal(r.steps,1);assert.equal(r.operationId,undefined);
+ assert.equal(f.calls.filter(c=>c.name==='computer_release').length,1);
+});
