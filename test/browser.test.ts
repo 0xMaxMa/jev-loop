@@ -923,3 +923,11 @@ test('confirmed focus-only preparation reobserves without claiming text was inse
   assert.equal(types.length,2);assert.notEqual(types[0].args.operation_id,types[1].args.operation_id);
   assert.equal(types[1].args.generation,'focused');
 });
+
+test('repeated text replacements offer other controls despite unrelated DOM changes',async()=>{
+ const f=fixture(['TYPE_TEXT','TYPE_TEXT','CLICK','DONE']);const evaluate=f.deps.evaluate;let decisions=0;
+ f.deps.evaluate=async(request,signal)=>{if(++decisions===3){assert.equal(request.questions.type_text_target,undefined);assert(request.questions.click_target);assert.match(JSON.stringify(request.state),/temporarily excluded/);}return evaluate(request,signal);};
+ const call=f.deps.call;let n=0;f.deps.call=async(name,args,signal)=>{if(name==='page_type'){f.calls.push({name,args});f.page.text='Changing price '+(++n);return {state:'completed',result:{ok:true,observation:structuredClone(f.page)}};}return call(name,args,signal);};
+ const r=await runBrowserUse({goal:'Fill then apply',scope,fields:[{label:'Name',text:'same'}]},f.deps,new AbortController().signal);
+ assert.equal(r.reason,'COMPLETION_CANDIDATE');assert.equal(f.calls.filter(c=>c.name==='page_type').length,2);assert.equal(f.calls.filter(c=>c.name==='page_click').length,1);
+});
