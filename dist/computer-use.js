@@ -47,7 +47,14 @@ async function runComputerUse(raw, deps, signal) {
     const summary = (action) => { const field = last?.controls.find(c => c.ref === action.ref); return { action: action.kind, ...(typeof action.key === 'string' ? { key: action.key } : {}), ...(field ? { ref: field.ref, role: field.role, focused: field.focused } : action.kind === 'key' && last?.focusedControl ? { role: last.focusedControl.role, focused: true } : {}) }; };
     try {
         (0, interrupt_js_1.checkInterruption)(deps.interruptSignal);
-        lease = zod_1.z.object({ lease_token: zod_1.z.string().min(1) }).parse(await call('computer_acquire')).lease_token;
+        const acquisition = await call('computer_acquire');
+        const recovery = zod_1.z.object({ recovery_required: zod_1.z.literal(true), operation_id: zod_1.z.string().uuid() }).safeParse(acquisition);
+        if (recovery.success) {
+            pending = recovery.data.operation_id;
+            emit('reconciling', { operationId: pending, reason: 'OWNER_REVIEW_REQUIRED' });
+            return result('needs_reconciliation', 'COMPUTER_RECONCILIATION_REQUIRED');
+        }
+        lease = zod_1.z.object({ lease_token: zod_1.z.string().min(1) }).parse(acquisition).lease_token;
         return await (0, jev_loop_1.runLoop)({
             signal: runSignal, maxCycles: input.maxSteps * 3 + 5, stageTimeoutMs: input.timeoutMs,
             thinking: deps.thinking ? (r, s) => (0, interrupt_js_1.interruptible)(child => deps.thinking(r, child), s, deps.interruptSignal) : undefined, maxThinkingCalls: input.maxSteps, thinkingTimeoutMs: 60000,
@@ -193,7 +200,30 @@ async function runComputerUse(raw, deps, signal) {
                 pending = operationId;
                 emit('acting', { ...summary(action), operationId });
                 const started = Date.now();
-                const receipt = zod_1.z.object({ state: zod_1.z.enum(['completed', 'not_executed', 'unknown']), error: zod_1.z.string().optional() }).parse(await call('computer_action', { ...action, generation: d.generation, operation_id: operationId }));
+                const Receipt = zod_1.z.object({ state: zod_1.z.enum(['completed', 'not_executed', 'unknown']), error: zod_1.z.string().optional() });
+                let receipt;
+                try {
+                    receipt = Receipt.parse(await call('computer_action', { ...action, generation: d.generation, operation_id: operationId }));
+                }
+                catch {
+                    receipt = { state: 'unknown' };
+                }
+                if (receipt.state === 'unknown') {
+                    emit('reconciling', { ...summary(action), operationId, reason: 'CHECKING_RECORDED_RESULT' });
+                    // Read receipts only; never resend the action after a transport failure.
+                    for (let retry = 0; retry < 3 && receipt.state === 'unknown'; retry++) {
+                        check();
+                        const status = await deps.call('computer_operation_status', { operation_id: operationId }, runSignal).catch(() => undefined);
+                        const parsed = zod_1.z.object({ operation_id: zod_1.z.literal(operationId), state: zod_1.z.enum(['completed', 'not_executed', 'unknown']), error: zod_1.z.string().optional(), owner_acknowledged: zod_1.z.boolean().optional() }).safeParse(status);
+                        if (parsed.success) {
+                            if (parsed.data.owner_acknowledged)
+                                return result('cancelled', 'OWNER_ACKNOWLEDGED_UNKNOWN');
+                            receipt = parsed.data;
+                        }
+                        if (receipt.state === 'unknown' && retry < 2)
+                            await new Promise(resolve => setTimeout(resolve, 250));
+                    }
+                }
                 if (receipt.state === 'unknown') {
                     emit('acted', { ...summary(action), operationId, outcome: 'unknown', elapsedMs: Date.now() - started });
                     return result('needs_reconciliation', 'OUTCOME_UNKNOWN');
@@ -212,7 +242,7 @@ async function runComputerUse(raw, deps, signal) {
         });
     }
     catch (error) {
-        return result(pending ? 'needs_reconciliation' : (signal.aborted || deps.interruptSignal?.aborted) ? 'cancelled' : 'blocked', pending ? 'OUTCOME_UNKNOWN' : deps.interruptSignal?.aborted ? 'REVISION_SUPERSEDED' : signal.aborted ? 'CANCELLED' : runSignal.aborted ? 'TIMEOUT' : error instanceof Error && /^[A-Z_]+$/.test(error.message) ? error.message : 'COMPUTER_USE_FAILED');
+        return result(pending || (error instanceof Error && error.message === 'COMPUTER_RECONCILIATION_REQUIRED') ? 'needs_reconciliation' : (signal.aborted || deps.interruptSignal?.aborted) ? 'cancelled' : 'blocked', pending ? 'OUTCOME_UNKNOWN' : deps.interruptSignal?.aborted ? 'REVISION_SUPERSEDED' : signal.aborted ? 'CANCELLED' : runSignal.aborted ? 'TIMEOUT' : error instanceof Error && /^[A-Z_]+$/.test(error.message) ? error.message : 'COMPUTER_USE_FAILED');
     }
     finally {
         if (lease) {

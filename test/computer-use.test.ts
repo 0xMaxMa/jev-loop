@@ -116,3 +116,27 @@ test('speech during a confirmed desktop mutation waits for its result and never 
  assert.equal(r.reason,'REVISION_SUPERSEDED');assert.equal(r.steps,1);assert.equal(r.operationId,undefined);
  assert.equal(f.calls.filter(c=>c.name==='computer_release').length,1);
 });
+
+test('lost action reply reads the matching receipt and continues from observation without replay',async()=>{
+ const f=fixture(['key:enter','DONE']),call=f.deps.call;let actions=0,reads=0,op='';
+ f.deps.call=async(name,args,s)=>{
+  if(name==='computer_action'){actions++;op=String(args.operation_id);throw Error('TRANSPORT_LOST');}
+  if(name==='computer_operation_status'){reads++;assert.deepEqual(args,{operation_id:op});return {operation_id:op,state:'completed'};}
+  return call(name,args,s);
+ };
+ const r=await runComputerUse({goal:'Search'},f.deps,new AbortController().signal);
+ assert.equal(actions,1);assert.equal(reads,1);assert.equal(r.steps,1);assert.equal(r.operationId,undefined);
+ assert(r.trace.events.some(e=>e.phase==='reconciling'));assert.equal(r.status,'needs_verification');
+});
+test('wrong operation receipt cannot clear the mutation fence',async()=>{
+ const f=fixture(['key:enter']),call=f.deps.call;let actions=0;
+ f.deps.call=async(name,args,s)=>name==='computer_action'?(actions++,{state:'unknown'}):name==='computer_operation_status'?{operation_id:'wrong',state:'completed'}:call(name,args,s);
+ const r=await runComputerUse({goal:'Search'},f.deps,new AbortController().signal);
+ assert.equal(actions,1);assert.equal(r.status,'needs_reconciliation');assert(r.operationId);
+});
+test('acquisition recovery preserves the old operation and never starts inference or actions',async()=>{
+ const f=fixture(['key:enter']),operation='11111111-1111-4111-8111-111111111111';
+ f.deps.call=async()=>({recovery_required:true,operation_id:operation});f.deps.evaluate=async()=>{throw Error('must not infer');};
+ const r=await runComputerUse({goal:'Search'},f.deps,new AbortController().signal);
+ assert.equal(r.operationId,operation);assert.equal(r.status,'needs_reconciliation');assert.equal(r.evaluations,0);assert.equal(r.steps,0);
+});

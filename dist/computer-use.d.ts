@@ -144,7 +144,7 @@ export interface ComputerProgress {
     revision: number;
     steps: number;
     evaluations: number;
-    phase: 'observing' | 'observed' | 'evaluating' | 'decided' | 'thinking' | 'verifying' | 'acting' | 'acted' | 'waiting' | 'terminal';
+    phase: 'observing' | 'observed' | 'evaluating' | 'decided' | 'thinking' | 'verifying' | 'acting' | 'acted' | 'waiting' | 'reconciling' | 'terminal';
     action?: 'open' | 'press' | 'type' | 'key' | 'WAIT' | 'DONE' | 'BLOCKED';
     key?: string;
     ref?: string;

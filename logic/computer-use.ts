@@ -11,7 +11,7 @@ export interface GoalRevision {revision:number;goal:string}
 /** Structural diagnostics only: no typed text, window contents or private field labels. */
 export interface ComputerProgress {
  sequence:number;round:number;at:number;revision:number;steps:number;evaluations:number;
- phase:'observing'|'observed'|'evaluating'|'decided'|'thinking'|'verifying'|'acting'|'acted'|'waiting'|'terminal';
+ phase:'observing'|'observed'|'evaluating'|'decided'|'thinking'|'verifying'|'acting'|'acted'|'waiting'|'reconciling'|'terminal';
  action?:'open'|'press'|'type'|'key'|'WAIT'|'DONE'|'BLOCKED';key?:string;ref?:string;role?:string;
  focused?:boolean;operationId?:string;requestId?:string;confidence?:number;elapsedMs?:number;
  outcome?:'completed'|'not_executed'|'unknown';changed?:boolean;reason?:string;status?:ComputerUseResult['status'];
@@ -53,7 +53,10 @@ export async function runComputerUse(raw:unknown,deps:ComputerUseDependencies,si
  const summary=(action:Record<string,unknown>):Partial<ComputerProgress>=>{const field=last?.controls.find(c=>c.ref===action.ref);return {action:action.kind as ComputerProgress['action'],...(typeof action.key==='string'?{key:action.key}:{}),...(field?{ref:field.ref,role:field.role,focused:field.focused}:action.kind==='key'&&last?.focusedControl?{role:last.focusedControl.role,focused:true}:{})};};
  try{
   checkInterruption(deps.interruptSignal);
-  lease=z.object({lease_token:z.string().min(1)}).parse(await call('computer_acquire')).lease_token;
+  const acquisition=await call('computer_acquire');
+  const recovery=z.object({recovery_required:z.literal(true),operation_id:z.string().uuid()}).safeParse(acquisition);
+  if(recovery.success){pending=recovery.data.operation_id;emit('reconciling',{operationId:pending,reason:'OWNER_REVIEW_REQUIRED'});return result('needs_reconciliation','COMPUTER_RECONCILIATION_REQUIRED');}
+  lease=z.object({lease_token:z.string().min(1)}).parse(acquisition).lease_token;
   return await runLoop<ComputerState,{action:string;generation:string;revision:number;targets:Map<string,Record<string,unknown>>},ComputerUseResult>({
    signal:runSignal,maxCycles:input.maxSteps*3+5,stageTimeoutMs:input.timeoutMs,
    thinking:deps.thinking?(r,s)=>interruptible(child=>deps.thinking!(r,child),s,deps.interruptSignal):undefined,maxThinkingCalls:input.maxSteps,thinkingTimeoutMs:60000,
@@ -118,7 +121,20 @@ export async function runComputerUse(raw:unknown,deps:ComputerUseDependencies,si
     const operationId=randomUUID();await deps.beforeMutation(operationId,{...action,generation:d.generation,revision:goal.revision});
     check();if(deps.interruptSignal?.aborted){emit('acted',{operationId,outcome:'not_executed',reason:'REVISION_SUPERSEDED'});checkInterruption(deps.interruptSignal);}update();if(goal.revision!==d.revision){emit('acted',{operationId,outcome:'not_executed',reason:'GOAL_CHANGED'});return;}
     pending=operationId;emit('acting',{...summary(action),operationId});const started=Date.now();
-    const receipt=z.object({state:z.enum(['completed','not_executed','unknown']),error:z.string().optional()}).parse(await call('computer_action',{...action,generation:d.generation,operation_id:operationId}));
+    const Receipt=z.object({state:z.enum(['completed','not_executed','unknown']),error:z.string().optional()});
+    let receipt:z.infer<typeof Receipt>;
+    try{receipt=Receipt.parse(await call('computer_action',{...action,generation:d.generation,operation_id:operationId}));}
+    catch{receipt={state:'unknown'};}
+    if(receipt.state==='unknown'){
+     emit('reconciling',{...summary(action),operationId,reason:'CHECKING_RECORDED_RESULT'});
+     // Read receipts only; never resend the action after a transport failure.
+     for(let retry=0;retry<3&&receipt.state==='unknown';retry++){
+      check();const status=await deps.call('computer_operation_status',{operation_id:operationId},runSignal).catch(()=>undefined);
+      const parsed=z.object({operation_id:z.literal(operationId),state:z.enum(['completed','not_executed','unknown']),error:z.string().optional(),owner_acknowledged:z.boolean().optional()}).safeParse(status);
+      if(parsed.success){if(parsed.data.owner_acknowledged)return result('cancelled','OWNER_ACKNOWLEDGED_UNKNOWN');receipt=parsed.data;}
+      if(receipt.state==='unknown'&&retry<2)await new Promise(resolve=>setTimeout(resolve,250));
+     }
+    }
     if(receipt.state==='unknown'){emit('acted',{...summary(action),operationId,outcome:'unknown',elapsedMs:Date.now()-started});return result('needs_reconciliation','OUTCOME_UNKNOWN');}
     pending=undefined;
     if(receipt.state==='not_executed'){
@@ -130,6 +146,6 @@ export async function runComputerUse(raw:unknown,deps:ComputerUseDependencies,si
     steps++;emit('acted',{...summary(action),operationId,outcome:'completed',elapsedMs:Date.now()-started});
    }
   });
- }catch(error){return result(pending?'needs_reconciliation':(signal.aborted||deps.interruptSignal?.aborted)?'cancelled':'blocked',pending?'OUTCOME_UNKNOWN':deps.interruptSignal?.aborted?'REVISION_SUPERSEDED':signal.aborted?'CANCELLED':runSignal.aborted?'TIMEOUT':error instanceof Error&&/^[A-Z_]+$/.test(error.message)?error.message:'COMPUTER_USE_FAILED');}
+ }catch(error){return result(pending||(error instanceof Error&&error.message==='COMPUTER_RECONCILIATION_REQUIRED')?'needs_reconciliation':(signal.aborted||deps.interruptSignal?.aborted)?'cancelled':'blocked',pending?'OUTCOME_UNKNOWN':deps.interruptSignal?.aborted?'REVISION_SUPERSEDED':signal.aborted?'CANCELLED':runSignal.aborted?'TIMEOUT':error instanceof Error&&/^[A-Z_]+$/.test(error.message)?error.message:'COMPUTER_USE_FAILED');}
  finally{if(lease){try{await deps.call('computer_release',{lease_token:lease},AbortSignal.timeout(2000));}catch{/* Lease expiry owns abandoned work. */}}}
 }

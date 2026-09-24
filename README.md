@@ -193,3 +193,16 @@ checkpoint emits `acted/not_executed`; `acting` is never proof of execution. Hos
 must retain their durable operation fence until `acted` reports `completed` or
 `not_executed`, and must preserve unknown outcomes for reconciliation. Trace sink
 failures do not turn known action outcomes into retries.
+
+### Interrupted computer actions
+
+Computer Use reads `computer_operation_status` up to three times after an unknown
+or lost action reply. The receipt must contain the exact `operation_id`; only
+`completed` or `not_executed` clears the mutation fence. It never resends that
+operation. Progress includes `reconciling`, and continuation observes the desktop
+again before choosing another action. An acquire response with
+`{recovery_required: true, operation_id}` exposes a previously interrupted scoped
+operation without starting inference. Unknown results stay `needs_reconciliation`;
+a screenshot or model judgement is not proof that an irreversible action did not
+occur. Hosts can poll recorded outcomes across restart. Local owner acknowledgement
+is reported separately as `owner_acknowledged: true`, not fabricated completion.
