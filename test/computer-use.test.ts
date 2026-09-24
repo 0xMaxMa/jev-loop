@@ -65,3 +65,23 @@ test('fresh satisfied field values progress without repeated typing or reopening
  const r=await runComputerUse({goal:'Search milk'},f.deps,new AbortController().signal);
  assert.equal(r.steps,1);const actions=f.calls.filter(x=>x.name==='computer_action');assert.equal(actions.length,1);assert.equal(actions[0].args.kind,'key');
 });
+
+test('typed search advances to Enter with focused state and within-run action feedback',async()=>{
+ const f=fixture([]);let state={...f.state,controls:[{...f.state.controls[0],role:'AXTextField',label:'Search',focused:false}],focusedControl:{ref:'other',role:'AXButton',label:'Other'}};let submitted=false;const events:any[]=[];
+ f.deps.progress=e=>events.push(e);
+ f.deps.call=async(name,args)=>{f.calls.push({name,args});if(name==='computer_acquire')return {lease_token:'l'};if(name==='computer_observe')return structuredClone(state);if(name==='computer_action'){if(args.kind==='type'){state.controls[0].value=String(args.text);state.controls[0].focused=true;state.focusedControl={ref:'c1',role:'AXTextField',label:'Search'};}if(args.kind==='key'){assert.equal(args.key,'enter');assert.equal(state.controls[0].focused,true);submitted=true;}return {state:'completed'};}return {};};
+ f.deps.evaluate=async req=>{const input=req.state as any;let choice='DONE';if(!state.controls[0].value)choice='type:c1';else if(!submitted){assert.equal(input.desktop.focusedControl.ref,'c1');assert.equal(input.recentActions.at(-1).action,'type');assert.equal(input.recentActions.at(-1).changed,true);assert.equal(Object.hasOwn(req.questions.action.criteria,'type:c1'),false);choice='key:enter';}return {answers:{action:{choice,confidence:1,probabilities:Object.fromEntries(Object.keys(req.questions.action.criteria).map(k=>[k,k===choice?1:0]))}}};};
+ f.deps.verify=async()=>submitted;
+ const r=await runComputerUse({goal:'Search for milk'},f.deps,new AbortController().signal);
+ assert.equal(r.status,'succeeded');assert.equal(r.steps,2);assert.equal(r.evaluations,3);
+ assert.ok(events.some(e=>e.phase==='thinking'));assert.ok(events.some(e=>e.phase==='acted'&&e.key==='enter'&&e.outcome==='completed'));assert.ok(events.some(e=>e.phase==='observed'&&e.changed));
+ assert.equal(JSON.stringify(r.trace).includes('milk'),false);assert.equal(JSON.stringify(r.trace).includes('Search'),false);
+});
+test('unchanged successful dispatches are observed and not offered endlessly',async()=>{
+ const f=fixture([]);f.state.controls=[{ref:'c1',label:'Continue',role:'AXButton',actions:['press'] as any,value:''}];let decision=0;
+ f.deps.evaluate=async req=>{const c=req.questions.action.criteria;decision++;if(decision>2)assert.equal(Object.hasOwn(c,'press:c1'),false);const choice=decision<=2?'press:c1':'BLOCKED';return {answers:{action:{choice,confidence:1,probabilities:Object.fromEntries(Object.keys(c).map(k=>[k,k===choice?1:0]))}}};};
+ const r=await runComputerUse({goal:'Continue'},f.deps,new AbortController().signal);assert.equal(r.steps,2);assert.equal(r.reason,'NO_SUPPORTED_ACTION');assert.equal(r.trace.events.filter(e=>e.phase==='observed'&&e.changed===false).length,2);
+});
+test('trace sink errors cannot turn a confirmed action into an unknown mutation',async()=>{
+ const f=fixture(['type:c1','DONE']);f.deps.progress=()=>{throw Error('sink offline');};const r=await runComputerUse({goal:'Draft a note'},f.deps,new AbortController().signal);assert.equal(r.status,'needs_verification');assert.equal(r.steps,1);assert.equal(r.operationId,undefined);
+});

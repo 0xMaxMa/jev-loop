@@ -8,6 +8,7 @@ export declare const ComputerObservation: z.ZodObject<{
         label: z.ZodString;
         role: z.ZodString;
         value: z.ZodOptional<z.ZodString>;
+        focused: z.ZodOptional<z.ZodBoolean>;
         actions: z.ZodArray<z.ZodEnum<["press", "type"]>, "many">;
         sensitive: z.ZodOptional<z.ZodBoolean>;
     }, "strip", z.ZodTypeAny, {
@@ -17,6 +18,7 @@ export declare const ComputerObservation: z.ZodObject<{
         actions: ("type" | "press")[];
         value?: string | undefined;
         sensitive?: boolean | undefined;
+        focused?: boolean | undefined;
     }, {
         ref: string;
         label: string;
@@ -24,7 +26,24 @@ export declare const ComputerObservation: z.ZodObject<{
         actions: ("type" | "press")[];
         value?: string | undefined;
         sensitive?: boolean | undefined;
+        focused?: boolean | undefined;
     }>, "many">;
+    focusedControl: z.ZodOptional<z.ZodObject<{
+        ref: z.ZodOptional<z.ZodString>;
+        role: z.ZodString;
+        label: z.ZodString;
+        sensitive: z.ZodOptional<z.ZodBoolean>;
+    }, "strip", z.ZodTypeAny, {
+        label: string;
+        role: string;
+        ref?: string | undefined;
+        sensitive?: boolean | undefined;
+    }, {
+        label: string;
+        role: string;
+        ref?: string | undefined;
+        sensitive?: boolean | undefined;
+    }>>;
     windowTitle: z.ZodOptional<z.ZodString>;
     text: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
     truncated: z.ZodBoolean;
@@ -62,12 +81,19 @@ export declare const ComputerObservation: z.ZodObject<{
         actions: ("type" | "press")[];
         value?: string | undefined;
         sensitive?: boolean | undefined;
+        focused?: boolean | undefined;
     }[];
     apps: {
         id: string;
         name: string;
     }[];
     text?: string[] | undefined;
+    focusedControl?: {
+        label: string;
+        role: string;
+        ref?: string | undefined;
+        sensitive?: boolean | undefined;
+    } | undefined;
     windowTitle?: string | undefined;
     platform?: {
         os: string;
@@ -85,12 +111,19 @@ export declare const ComputerObservation: z.ZodObject<{
         actions: ("type" | "press")[];
         value?: string | undefined;
         sensitive?: boolean | undefined;
+        focused?: boolean | undefined;
     }[];
     apps: {
         id: string;
         name: string;
     }[];
     text?: string[] | undefined;
+    focusedControl?: {
+        label: string;
+        role: string;
+        ref?: string | undefined;
+        sensitive?: boolean | undefined;
+    } | undefined;
     windowTitle?: string | undefined;
     platform?: {
         os: string;
@@ -102,6 +135,29 @@ export type ComputerState = z.infer<typeof ComputerObservation>;
 export interface GoalRevision {
     revision: number;
     goal: string;
+}
+/** Structural diagnostics only: no typed text, window contents or private field labels. */
+export interface ComputerProgress {
+    sequence: number;
+    round: number;
+    at: number;
+    revision: number;
+    steps: number;
+    evaluations: number;
+    phase: 'observing' | 'observed' | 'evaluating' | 'decided' | 'thinking' | 'verifying' | 'acting' | 'acted' | 'waiting' | 'terminal';
+    action?: 'open' | 'press' | 'type' | 'key' | 'WAIT' | 'DONE' | 'BLOCKED';
+    key?: string;
+    ref?: string;
+    role?: string;
+    focused?: boolean;
+    operationId?: string;
+    requestId?: string;
+    confidence?: number;
+    elapsedMs?: number;
+    outcome?: 'completed' | 'not_executed' | 'unknown';
+    changed?: boolean;
+    reason?: string;
+    status?: ComputerUseResult['status'];
 }
 export interface ComputerUseDependencies {
     call(name: string, args: Record<string, unknown>, signal: AbortSignal): Promise<unknown>;
@@ -120,7 +176,7 @@ export interface ComputerUseDependencies {
     latestGoal?: () => GoalRevision;
     authorized: () => boolean;
     beforeMutation: (operationId: string, action: unknown) => Promise<void> | void;
-    progress?: (event: Record<string, unknown>) => void;
+    progress?: (event: ComputerProgress) => void;
     verify?: (state: ComputerState, goal: string, signal: AbortSignal) => Promise<boolean>;
 }
 export interface ComputerUseResult {
@@ -128,6 +184,11 @@ export interface ComputerUseResult {
     reason: string;
     revision: number;
     steps: number;
+    evaluations: number;
+    trace: {
+        events: ComputerProgress[];
+        truncated: boolean;
+    };
     operationId?: string;
     observation?: ComputerState;
 }

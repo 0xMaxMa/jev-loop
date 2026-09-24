@@ -169,3 +169,19 @@ execution fence. No trace is uploaded and no experience registry is contacted.
 
 Real-site acceptance still requires a consented browser and independently checked
 results. Unit fixtures alone do not establish Google Flights success or latency.
+
+### Computer Use diagnostics and focus
+
+Computer observations report keyboard focus. Typing focuses its target; submitting
+a search/form remains a separate Jev-selected action, never a hardcoded Enter.
+Each loop round emits structural progress: observation, evaluation, decision,
+Thinking, dispatch, action result and observed change. `progress(event)` provides
+live events and the result contains a bounded trace (up to 2000 events). It includes
+round/request/operation IDs, selected action, key, role, confidence and durations,
+not typed values or app text. Hosts can persist the trace per authorized request.
+Dispatch completion alone does not prove that the UI changed or the goal is met.
+
+The last eight observed action effects inform the next Jev choice only within the
+current goal. An action that twice produced no observed change on the same state
+is withheld until the state changes, while other actions remain available. This
+is execution feedback, not an Experience Pack or persistent learning.
