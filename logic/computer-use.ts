@@ -5,7 +5,7 @@ import {runLoop} from '@0xmaxma/jev-loop';
 
 export const COMPUTER_USE_CONTRACT_VERSION = 1;
 const Control=z.object({ref:z.string().min(1).max(100),label:z.string().max(500),role:z.string().max(100),value:z.string().max(2000).optional(),focused:z.boolean().optional(),actions:z.array(z.enum(['press','type'])),sensitive:z.boolean().optional()});
-export const ComputerObservation=z.object({screenshotAvailable:z.boolean().optional(),visualSummary:z.string().max(2500).optional(),generation:z.string().min(1),application:z.string(),controls:z.array(Control).max(150),focusedControl:z.object({ref:z.string().max(100).optional(),role:z.string().max(100),label:z.string().max(500),sensitive:z.boolean().optional()}).optional(),windowTitle:z.string().max(500).optional(),text:z.array(z.string().max(300)).max(80).optional(),truncated:z.boolean(),platform:z.object({os:z.string(),osVersion:z.string(),appVersion:z.string().optional()}).optional(),apps:z.array(z.object({id:z.string(),name:z.string()})).max(100)});
+export const ComputerObservation=z.object({screenshotAvailable:z.boolean().optional(),generation:z.string().min(1),application:z.string(),controls:z.array(Control).max(150),focusedControl:z.object({ref:z.string().max(100).optional(),role:z.string().max(100),label:z.string().max(500),sensitive:z.boolean().optional()}).optional(),windowTitle:z.string().max(500).optional(),text:z.array(z.string().max(300)).max(80).optional(),truncated:z.boolean(),platform:z.object({os:z.string(),osVersion:z.string(),appVersion:z.string().optional()}).optional(),apps:z.array(z.object({id:z.string(),name:z.string()})).max(100)});
 export type ComputerState=z.infer<typeof ComputerObservation>;
 export interface GoalRevision {revision:number;goal:string}
 /** Structural diagnostics only: no typed text, window contents or private field labels. */
@@ -21,7 +21,7 @@ export interface ComputerUseDependencies {
  call(name:string,args:Record<string,unknown>,signal:AbortSignal):Promise<unknown>;
  evaluate(request:{state:unknown;questions:Record<string,{type:'choice';instructions:string;criteria:Record<string,string>}>;requestId:string},signal:AbortSignal):Promise<{answers:Record<string,unknown>}>;
  observation?:(state:ComputerState)=>void;
- vision?:(state:ComputerState,signal:AbortSignal)=>Promise<string|undefined>;
+ snapshot?:(state:ComputerState,signal:AbortSignal)=>Promise<void>;
  thinking?:(request:unknown,signal:AbortSignal)=>Promise<unknown>;
  latestGoal?:()=>GoalRevision;authorized:()=>boolean;
  beforeMutation:(operationId:string,action:unknown)=>Promise<void>|void;
@@ -39,8 +39,8 @@ export async function runComputerUse(raw:unknown,deps:ComputerUseDependencies,si
  let lease:string|undefined,pending:string|undefined,last:ComputerState|undefined;
  let satisfiedField:{ref:string;application:string;windowTitle?:string;label:string;role:string;value:string}|undefined;
  const history:Array<{action:string;target?:{label:string;role:string};key?:string;changed:boolean}>=[];
- const trace:ComputerProgress[]=[];let visionUsed=false;
- const observeVisual=async()=>{if(!last||!deps.vision||!last.screenshotAvailable)return;const summary=await deps.vision(last,runSignal);check();if(summary)last.visualSummary=summary.slice(0,2500);deps.observation?.(last);};
+ const trace:ComputerProgress[]=[];
+ const capture=async()=>{if(last?.screenshotAvailable&&deps.snapshot){await deps.snapshot(last,runSignal);check();}};
  let previous:{signature:string;identity:string;action:Record<string,unknown>;field?:ComputerState['controls'][number]}|undefined;
  // In-run feedback is discarded on a goal revision; it is not learned or downloaded knowledge.
  const ineffective=new Map<string,number>();
@@ -65,7 +65,7 @@ export async function runComputerUse(raw:unknown,deps:ComputerUseDependencies,si
    signal:runSignal,maxCycles:input.maxSteps*3+5,stageTimeoutMs:input.timeoutMs,
    thinking:deps.thinking?(r,s)=>interruptible(child=>deps.thinking!(r,child),s,deps.interruptSignal):undefined,maxThinkingCalls:input.maxSteps,thinkingTimeoutMs:60000,
    observe:async ctx=>{
-    round=ctx.cycle+1;check();checkInterruption(deps.interruptSignal);update();emit('observing');const started=Date.now();const prior=last;last=ComputerObservation.parse(await call('computer_observe'));if(prior?.visualSummary&&fingerprint(prior)===fingerprint(last))last.visualSummary=prior.visualSummary;check();deps.observation?.(last);
+    round=ctx.cycle+1;check();checkInterruption(deps.interruptSignal);update();emit('observing');const started=Date.now();last=ComputerObservation.parse(await call('computer_observe'));check();deps.observation?.(last);
     if(previous){
      const changed=previous.signature!==fingerprint(last);
      if(!changed){if(ineffective.size>=100&&!ineffective.has(previous.identity))ineffective.clear();ineffective.set(previous.identity,(ineffective.get(previous.identity)??0)+1);}
@@ -101,9 +101,9 @@ export async function runComputerUse(raw:unknown,deps:ComputerUseDependencies,si
    execute:async(d,ctx)=>{
     check();checkInterruption(deps.interruptSignal);update();if(goal.revision!==d.revision)return;
     if(d.action==='WAIT'){emit('waiting');await new Promise<void>((resolve,reject)=>{const stop=()=>{clearTimeout(t);reject(Error('CANCELLED'));};const t=setTimeout(()=>{runSignal.removeEventListener('abort',stop);resolve();},250);runSignal.addEventListener('abort',stop,{once:true});});return;}
-    if(d.action==='BLOCKED'){if(!visionUsed&&last?.screenshotAvailable&&deps.vision){visionUsed=true;await observeVisual();if(last?.visualSummary)return;}return result('blocked','NO_SUPPORTED_ACTION');}
+    if(d.action==='BLOCKED'){await capture();return result('blocked','NO_SUPPORTED_ACTION');}
     if(d.action==='DONE'){
-     emit('verifying');last=ComputerObservation.parse(await call('computer_observe'));check();deps.observation?.(last);await observeVisual();checkInterruption(deps.interruptSignal);update();if(goal.revision!==d.revision)return;
+     emit('verifying');last=ComputerObservation.parse(await call('computer_observe'));check();deps.observation?.(last);await capture();checkInterruption(deps.interruptSignal);update();if(goal.revision!==d.revision)return;
      if(last.truncated||!deps.verify)return result('needs_verification','COMPLETION_CANDIDATE');
      const verified=await interruptible(verifySignal=>deps.verify!(last!,goal.goal,verifySignal),runSignal,deps.interruptSignal);check();checkInterruption(deps.interruptSignal);update();if(goal.revision!==d.revision)return;
      if(typeof verified!=='boolean')throw Error('INVALID_VERIFICATION');

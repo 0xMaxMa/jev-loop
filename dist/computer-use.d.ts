@@ -2,7 +2,6 @@ import { z } from 'zod';
 export declare const COMPUTER_USE_CONTRACT_VERSION = 1;
 export declare const ComputerObservation: z.ZodObject<{
     screenshotAvailable: z.ZodOptional<z.ZodBoolean>;
-    visualSummary: z.ZodOptional<z.ZodString>;
     generation: z.ZodString;
     application: z.ZodString;
     controls: z.ZodArray<z.ZodObject<{
@@ -91,7 +90,6 @@ export declare const ComputerObservation: z.ZodObject<{
     }[];
     text?: string[] | undefined;
     screenshotAvailable?: boolean | undefined;
-    visualSummary?: string | undefined;
     focusedControl?: {
         label: string;
         role: string;
@@ -123,7 +121,6 @@ export declare const ComputerObservation: z.ZodObject<{
     }[];
     text?: string[] | undefined;
     screenshotAvailable?: boolean | undefined;
-    visualSummary?: string | undefined;
     focusedControl?: {
         label: string;
         role: string;
@@ -180,7 +177,7 @@ export interface ComputerUseDependencies {
         answers: Record<string, unknown>;
     }>;
     observation?: (state: ComputerState) => void;
-    vision?: (state: ComputerState, signal: AbortSignal) => Promise<string | undefined>;
+    snapshot?: (state: ComputerState, signal: AbortSignal) => Promise<void>;
     thinking?: (request: unknown, signal: AbortSignal) => Promise<unknown>;
     latestGoal?: () => GoalRevision;
     authorized: () => boolean;

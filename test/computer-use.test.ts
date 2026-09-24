@@ -152,8 +152,8 @@ test('ambiguous prepared fields do not bypass Thinking',async()=>{
  const f=fixture(['type:c1','DONE']);f.state.controls.push({...f.state.controls[0],ref:'c2'});let calls=0;f.deps.thinking=async()=>{calls++;return {text:'fallback'};};
  await runComputerUse({goal:'Create a note',preparedInputs:[{application:'com.apple.Notes',label:'Note',text:'prepared'}]},f.deps,new AbortController().signal);assert.equal(calls,1);
 });
-test('visual evidence helps a blocked decision and independently verifies the goal',async()=>{
- const f=fixture(['BLOCKED','DONE']);(f.state as any).screenshotAvailable=true;let images=0,observed=0;
- f.deps.observation=()=>{observed++;};f.deps.vision=async()=>{images++;return 'Visible requested map location';};f.deps.verify=async state=>state.visualSummary==='Visible requested map location';
- const result=await runComputerUse({goal:'Inspect'},f.deps,new AbortController().signal);assert.equal(result.status,'succeeded');assert.equal(images,2);assert.ok(observed>0);
+test('completion captures visual evidence for the parent without requiring an inference model',async()=>{
+ const f=fixture(['DONE']);(f.state as any).screenshotAvailable=true;let images=0;
+ f.deps.snapshot=async()=>{images++;};delete f.deps.thinking;
+ const result=await runComputerUse({goal:'Inspect'},f.deps,new AbortController().signal);assert.equal(result.status,'needs_verification');assert.equal(images,1);
 });

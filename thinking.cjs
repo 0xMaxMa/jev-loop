@@ -3,8 +3,6 @@
 async function thinkJson(config, request, signal, requestFetch=fetch) {
   const input=JSON.stringify(request.input);
   if(!input||Buffer.byteLength(input)>65536||typeof request.instruction!=='string'||request.instruction.length>16000)throw Error('THINKING_INVALID_INPUT');
-  const images=request.images??[];
-  if(!Array.isArray(images)||images.length>1||images.some(i=>!i||i.mimeType!=='image/jpeg'||typeof i.data!=='string'||i.data.length>160000||!/^[-A-Za-z0-9+/]+={0,2}$/.test(i.data)))throw Error('THINKING_INVALID_IMAGE');
   const url=new URL(config.baseUrl);
   if(url.username||url.password||url.search||url.hash||!(url.protocol==='https:'||(url.protocol==='http:'&&['localhost','127.0.0.1','[::1]'].includes(url.hostname))))throw Error('THINKING_INVALID_CONFIG');
   if(!['openai-chat','anthropic-messages'].includes(config.api??'openai-chat')||!config.model||!config.apiKey||/[\r\n]/.test(config.apiKey))throw Error('THINKING_INVALID_CONFIG');
@@ -12,7 +10,7 @@ async function thinkJson(config, request, signal, requestFetch=fetch) {
   const response=await requestFetch(config.baseUrl.replace(/\/$/,'')+(anthropic?'/messages':'/chat/completions'),{
     method:'POST',redirect:'error',signal,
     headers:{Authorization:`Bearer ${config.apiKey}`,'Content-Type':'application/json',...(anthropic?{'anthropic-version':'2023-06-01'}:{})},
-    body:JSON.stringify({model:config.model,max_tokens:512,stream:false,...(anthropic?{system:request.instruction,messages:[{role:'user',content:images.length?[{type:'text',text:input},...images.map(i=>({type:'image',source:{type:'base64',media_type:i.mimeType,data:i.data}}))]:input}]}:{response_format:{type:'json_object'},messages:[{role:'system',content:request.instruction},{role:'user',content:images.length?[{type:'text',text:input},...images.map(i=>({type:'image_url',image_url:{url:'data:'+i.mimeType+';base64,'+i.data}}))]:input}]})}),
+    body:JSON.stringify({model:config.model,max_tokens:512,stream:false,...(anthropic?{system:request.instruction,messages:[{role:'user',content:input}]}:{response_format:{type:'json_object'},messages:[{role:'system',content:request.instruction},{role:'user',content:input}]})}),
   });
   if(!response.ok){await response.body?.cancel();throw Error('THINKING_HTTP_'+response.status);}
   const reader=response.body?.getReader();if(!reader)throw Error('THINKING_INVALID_RESPONSE');
