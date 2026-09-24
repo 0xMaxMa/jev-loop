@@ -157,3 +157,7 @@ test('completion captures visual evidence for the parent without requiring an in
  f.deps.snapshot=async()=>{images++;};delete f.deps.thinking;
  const result=await runComputerUse({goal:'Inspect'},f.deps,new AbortController().signal);assert.equal(result.status,'needs_verification');assert.equal(images,1);
 });
+test('missing field values attach a snapshot before asking the parent without Thinking',async()=>{
+ const f=fixture(['type:c1']);(f.state as any).screenshotAvailable=true;delete f.deps.thinking;let captures=0;f.deps.snapshot=async()=>{captures++;};
+ const result=await runComputerUse({goal:'Write a note'},f.deps,new AbortController().signal);assert.equal(result.status,'needs_input');assert.equal(captures,1);assert.equal(f.calls.filter(x=>x.name==='computer_action').length,0);
+});

@@ -172,8 +172,10 @@ async function runComputerUse(raw, deps, signal) {
                     const target = last?.controls.find(c => c.ref === action.ref);
                     const normalize = (s) => s.trim().toLocaleLowerCase();
                     const prepared = goal.revision === input.revision && target && !target.sensitive && last?.controls.filter(c => normalize(c.label) === normalize(target.label) && c.role === target.role).length === 1 ? input.preparedInputs.filter(p => p.application === last?.application && normalize(p.label) === normalize(target.label) && (!p.role || p.role === target.role) && (!p.windowTitle || p.windowTitle === last?.windowTitle)) : [];
-                    if (prepared.length !== 1 && !deps.thinking)
+                    if (prepared.length !== 1 && !deps.thinking) {
+                        await capture();
                         return result('needs_input', 'FIELD_TEXT_REQUIRED');
+                    }
                     if (prepared.length !== 1)
                         emit('thinking', summary(action));
                     const text = prepared.length === 1 ? { text: prepared[0].text } : zod_1.z.object({ text: zod_1.z.string().max(2000).nullable() }).strict().parse(await ctx.think({ goal: goal.goal, control: target, application: last?.application, windowTitle: last?.windowTitle, visibleText: last?.text, controls: last?.controls }));

@@ -206,3 +206,9 @@ operation without starting inference. Unknown results stay `needs_reconciliation
 a screenshot or model judgement is not proof that an irreversible action did not
 occur. Hosts can poll recorded outcomes across restart. Local owner acknowledgement
 is reported separately as `owner_acknowledged: true`, not fabricated completion.
+
+### Parent-prepared computer input and visual evidence
+
+Computer Use accepts `preparedInputs` entries with `application` (bundle ID), `label`, `text`, and optional `role`/`windowTitle`. A value bypasses text resolution only when the current observation identifies exactly one matching field. A new goal revision invalidates the old plan. Missing values return `needs_input` for the calling agent to resolve; the core does not require a separate Thinking model.
+
+Hosts may supply `observation(state)` and `snapshot(state, signal)` callbacks. The loop calls the latter before asking for missing text, reporting a completion candidate, or yielding a blocked decision, when the MCP observation advertises screenshot support. The host attaches the scoped window image to the parent agent, which can interpret the screen and prepare remaining inputs. Pixels never authorize actions or replace fresh MCP target/generation checks. System audio is not part of this contract.
