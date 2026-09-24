@@ -1035,3 +1035,11 @@ test('thinking result is discarded when navigation or field context changes',asy
   assert(r.trace?.events.some(e=>e.reason==='FIELD_CONTEXT_CHANGED'),change);
  }
 });
+
+test('recovery plan for a changed page is discarded before its field values are applied',async()=>{
+ const f=fixture(['BLOCKED','TYPE_TEXT']);
+ f.deps.recover=async()=>{f.page.url='https://new.fixture.test';return {guidance:'Use previous value',fields:[{label:'Name',text:'obsolete'}]};};
+ const r=await runBrowserUse({goal:'Fill name',scope},f.deps,new AbortController().signal);
+ assert.equal(r.reason,'FIELD_TEXT_REQUIRED');assert(!f.calls.some(c=>c.name==='page_type'));
+ assert(r.trace?.events.some(e=>e.reason==='RECOVERY_CONTEXT_CHANGED'));
+});

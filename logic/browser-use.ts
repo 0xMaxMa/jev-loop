@@ -505,9 +505,13 @@ export async function runBrowserUse(
     recoveryCalls++;
     let screenshot:BrowserRecoveryRequest['screenshot'];
     if(deps.snapshot&&lease){try{screenshot=await bounded(s=>deps.snapshot!(lease!,s),5000);}catch{check();checkInterruption(deps.interruptSignal);}}
+    const reasoningState=fingerprint(page);
     const plan=z.object({guidance:z.string().max(1000).nullable(),fields:z.array(z.object({label:z.string().min(1).max(250),text:z.string().min(1).max(2000)}).strict()).max(12)}).strict().parse(
       await bounded(s=>interruptible(child=>deps.recover!({goal:input.goal,reason,page:structuredClone(page!),recent_actions:history.slice(-8),supplied_fields:fieldValues,...(screenshot?{screenshot}:{})},child),s,deps.interruptSignal),15000));
     check();checkInterruption(deps.interruptSignal);
+    page=BrowserObservation.parse(await observeFresh());
+    check();checkInterruption(deps.interruptSignal);
+    if(fingerprint(page)!==reasoningState){emit({phase:'recovery',reason:'RECOVERY_CONTEXT_CHANGED'});return true;}
     const key=JSON.stringify(plan);if(plans.has(key)||(!plan.guidance&&!plan.fields.length))return false;plans.add(key);
     // Match live unique nonsensitive fields; a model never supplies refs or browser operations.
     for(const f of plan.fields){

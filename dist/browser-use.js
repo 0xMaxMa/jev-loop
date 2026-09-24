@@ -397,9 +397,17 @@ async function runBrowserUse(raw, deps, signal) {
                 (0, interrupt_js_1.checkInterruption)(deps.interruptSignal);
             }
         }
+        const reasoningState = fingerprint(page);
         const plan = zod_1.z.object({ guidance: zod_1.z.string().max(1000).nullable(), fields: zod_1.z.array(zod_1.z.object({ label: zod_1.z.string().min(1).max(250), text: zod_1.z.string().min(1).max(2000) }).strict()).max(12) }).strict().parse(await bounded(s => (0, interrupt_js_1.interruptible)(child => deps.recover({ goal: input.goal, reason, page: structuredClone(page), recent_actions: history.slice(-8), supplied_fields: fieldValues, ...(screenshot ? { screenshot } : {}) }, child), s, deps.interruptSignal), 15000));
         check();
         (0, interrupt_js_1.checkInterruption)(deps.interruptSignal);
+        page = exports.BrowserObservation.parse(await observeFresh());
+        check();
+        (0, interrupt_js_1.checkInterruption)(deps.interruptSignal);
+        if (fingerprint(page) !== reasoningState) {
+            emit({ phase: 'recovery', reason: 'RECOVERY_CONTEXT_CHANGED' });
+            return true;
+        }
         const key = JSON.stringify(plan);
         if (plans.has(key) || (!plan.guidance && !plan.fields.length))
             return false;
