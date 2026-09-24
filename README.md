@@ -169,3 +169,46 @@ execution fence. No trace is uploaded and no experience registry is contacted.
 
 Real-site acceptance still requires a consented browser and independently checked
 results. Unit fixtures alone do not establish Google Flights success or latency.
+
+### Computer Use diagnostics and focus
+
+Computer observations report keyboard focus. Typing focuses its target; submitting
+a search/form remains a separate Jev-selected action, never a hardcoded Enter.
+Each loop round emits structural progress: observation, evaluation, decision,
+Thinking, dispatch, action result and observed change. `progress(event)` provides
+live events and the result contains a bounded trace (up to 2000 events). It includes
+round/request/operation IDs, selected action, key, role, confidence and durations,
+not typed values or app text. Hosts can persist the trace per authorized request.
+Dispatch completion alone does not prove that the UI changed or the goal is met.
+
+The last eight observed action effects inform the next Jev choice only within the
+current goal. An action that twice produced no observed change on the same state
+is withheld until the state changes, while other actions remain available. This
+is execution feedback, not an Experience Pack or persistent learning.
+
+Computer live control uses a separate `interruptSignal`: decisions, Thinking and
+verification can stop promptly, while an already dispatched mutation retains its
+normal execution signal until its receipt arrives. An interrupted pre-dispatch
+checkpoint emits `acted/not_executed`; `acting` is never proof of execution. Hosts
+must retain their durable operation fence until `acted` reports `completed` or
+`not_executed`, and must preserve unknown outcomes for reconciliation. Trace sink
+failures do not turn known action outcomes into retries.
+
+### Interrupted computer actions
+
+Computer Use reads `computer_operation_status` up to three times after an unknown
+or lost action reply. The receipt must contain the exact `operation_id`; only
+`completed` or `not_executed` clears the mutation fence. It never resends that
+operation. Progress includes `reconciling`, and continuation observes the desktop
+again before choosing another action. An acquire response with
+`{recovery_required: true, operation_id}` exposes a previously interrupted scoped
+operation without starting inference. Unknown results stay `needs_reconciliation`;
+a screenshot or model judgement is not proof that an irreversible action did not
+occur. Hosts can poll recorded outcomes across restart. Local owner acknowledgement
+is reported separately as `owner_acknowledged: true`, not fabricated completion.
+
+### Parent-prepared computer input and visual evidence
+
+Computer Use accepts `preparedInputs` entries with `application` (bundle ID), `label`, `text`, and optional `role`/`windowTitle`. A value bypasses text resolution only when the current observation identifies exactly one matching field. A new goal revision invalidates the old plan. Missing values return `needs_input` for the calling agent to resolve; the core does not require a separate Thinking model.
+
+Hosts may supply `observation(state)` and `snapshot(state, signal)` callbacks. The loop calls the latter before asking for missing text, reporting a completion candidate, or yielding a blocked decision, when the MCP observation advertises screenshot support. The host attaches the scoped window image to the parent agent, which can interpret the screen and prepare remaining inputs. Pixels never authorize actions or replace fresh MCP target/generation checks. System audio is not part of this contract.
