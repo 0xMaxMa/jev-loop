@@ -203,7 +203,7 @@ async function runComputerUse(raw, deps, signal) {
                     emit('acted', { ...summary(action), operationId, outcome: 'not_executed', reason: receipt.error && /^[A-Z][A-Z_0-9]{0,79}$/.test(receipt.error) ? receipt.error : 'ACTION_REJECTED', elapsedMs: Date.now() - started });
                     if (receipt.error === 'STALE_OBSERVATION')
                         return;
-                    return result('blocked', receipt.error ?? 'ACTION_REJECTED');
+                    return result('blocked', receipt.error && /^[A-Z][A-Z_0-9]{0,79}$/.test(receipt.error) ? receipt.error : 'ACTION_REJECTED');
                 }
                 previous = { signature: fingerprint(last), identity: identity(last, action), action, field: last?.controls.find(c => c.ref === action.ref) };
                 steps++;

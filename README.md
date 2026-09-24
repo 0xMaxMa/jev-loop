@@ -185,3 +185,11 @@ The last eight observed action effects inform the next Jev choice only within th
 current goal. An action that twice produced no observed change on the same state
 is withheld until the state changes, while other actions remain available. This
 is execution feedback, not an Experience Pack or persistent learning.
+
+Computer live control uses a separate `interruptSignal`: decisions, Thinking and
+verification can stop promptly, while an already dispatched mutation retains its
+normal execution signal until its receipt arrives. An interrupted pre-dispatch
+checkpoint emits `acted/not_executed`; `acting` is never proof of execution. Hosts
+must retain their durable operation fence until `acted` reports `completed` or
+`not_executed`, and must preserve unknown outcomes for reconciliation. Trace sink
+failures do not turn known action outcomes into retries.
