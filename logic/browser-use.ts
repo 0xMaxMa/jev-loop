@@ -927,14 +927,14 @@ export async function runBrowserUse(
           const current=fingerprint(page);
           await settlePage();
           noProgress=fingerprint(page)===current?noProgress+1:0;
-          if(noProgress>=2){if(await recoverLocally('FIELD_VALUE_ALREADY_PRESENT'))return undefined;return result('blocked',handover.active?'THINKING_WAITING_INPUT':'NO_PROGRESS');}
+          if(noProgress>=2){if(await recoverLocally('FIELD_VALUE_ALREADY_PRESENT'))return undefined;return result('blocked',handover.calls>0?'THINKING_WAITING_INPUT':'NO_PROGRESS');}
           return undefined;
         }
         const actionKey=JSON.stringify([page.url,name,actionTarget?.label,actionTarget?.role,args.text,args.option_ref]);
         if(ineffectiveActions.get(actionKey)===fingerprint(page)){
           emit({phase:'recovery',reason:'REPEATED_NO_EFFECT',operation:op.choice});
           if(await recoverLocally('REPEATED_NO_EFFECT'))return undefined;
-          return result('blocked',handover.active?'THINKING_WAITING_INPUT':'NO_PROGRESS');
+          return result('blocked',handover.calls>0?'THINKING_WAITING_INPUT':'NO_PROGRESS');
         }
         const operationId = randomUUID();
         const targetRef=typeof args.ref==="string"?args.ref:undefined;
@@ -1033,7 +1033,7 @@ export async function runBrowserUse(
       if(op.choice!=="WAIT"&&visits>=3){
         emit({phase:'recovery',reason:'REPEATED_STATE'});
         if(await recoverLocally('REPEATED_STATE'))return undefined;
-        return result('blocked',handover.active?'THINKING_WAITING_INPUT':'NO_PROGRESS');
+        return result('blocked',handover.calls>0?'THINKING_WAITING_INPUT':'NO_PROGRESS');
       }
       // Only observed progress resets the consecutive stale budget. Global bounds still apply.
       if(direct)handover.complete();

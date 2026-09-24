@@ -1084,3 +1084,11 @@ test('control slice returns fresh evidence after one action without claiming suc
  const r=await runBrowserUse({goal:'Continue',scope,yieldAfterAction:true},f.deps,new AbortController().signal);
  assert.equal(r.reason,'COMMAND_WAITING_INPUT');assert.equal(r.steps,1);assert.equal(r.evaluations,1);assert.equal(r.status,'needs_verification');assert.equal(r.observation?.text,'Submitted');
 });
+
+test('repeated blocking after one fallback yields to controller without another Thinking call',async()=>{
+ const f=fixture(['BLOCKED','BLOCKED','BLOCKED','BLOCKED','BLOCKED','BLOCKED']);let calls=0;
+ f.deps.snapshot=async()=>({mimeType:'image/png',data:'aA=='});
+ f.deps.decideAction=async()=>{calls++;return {action:'WAIT',text:null};};
+ const r=await runBrowserUse({goal:'Continue',scope},f.deps,new AbortController().signal);
+ assert.equal(calls,1);assert.equal(r.reason,'THINKING_WAITING_INPUT');assert.equal(r.status,'blocked');
+});

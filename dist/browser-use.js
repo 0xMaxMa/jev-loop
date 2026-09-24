@@ -839,7 +839,7 @@ async function runBrowserUse(raw, deps, signal) {
                         if (noProgress >= 2) {
                             if (await recoverLocally('FIELD_VALUE_ALREADY_PRESENT'))
                                 return undefined;
-                            return result('blocked', handover.active ? 'THINKING_WAITING_INPUT' : 'NO_PROGRESS');
+                            return result('blocked', handover.calls > 0 ? 'THINKING_WAITING_INPUT' : 'NO_PROGRESS');
                         }
                         return undefined;
                     }
@@ -848,7 +848,7 @@ async function runBrowserUse(raw, deps, signal) {
                         emit({ phase: 'recovery', reason: 'REPEATED_NO_EFFECT', operation: op.choice });
                         if (await recoverLocally('REPEATED_NO_EFFECT'))
                             return undefined;
-                        return result('blocked', handover.active ? 'THINKING_WAITING_INPUT' : 'NO_PROGRESS');
+                        return result('blocked', handover.calls > 0 ? 'THINKING_WAITING_INPUT' : 'NO_PROGRESS');
                     }
                     const operationId = (0, node_crypto_1.randomUUID)();
                     const targetRef = typeof args.ref === "string" ? args.ref : undefined;
@@ -942,7 +942,7 @@ async function runBrowserUse(raw, deps, signal) {
                     emit({ phase: 'recovery', reason: 'REPEATED_STATE' });
                     if (await recoverLocally('REPEATED_STATE'))
                         return undefined;
-                    return result('blocked', handover.active ? 'THINKING_WAITING_INPUT' : 'NO_PROGRESS');
+                    return result('blocked', handover.calls > 0 ? 'THINKING_WAITING_INPUT' : 'NO_PROGRESS');
                 }
                 // Only observed progress resets the consecutive stale budget. Global bounds still apply.
                 if (direct)
