@@ -232,7 +232,7 @@ test("no progress and budgets bound action loops", async () => {
     new AbortController().signal,
   );
   assert.equal(r.reason, "NO_PROGRESS");
-  assert.equal(r.steps, 4);
+  assert.equal(r.steps, 2);
   const g = fixture(["CLICK", "CLICK"]);
   const b = await runBrowserUse(
     { goal: "Click", scope, maxSteps: 1 },
@@ -952,4 +952,43 @@ test('missing facts return to parent without fabricated field text',async()=>{
  const f=fixture(['TYPE_TEXT']);f.deps.resolveFieldText=async()=>({text:null});
  const r=await runBrowserUse({goal:'Enter an unknown child age',scope},f.deps,new AbortController().signal);
  assert.equal(r.reason,'FIELD_TEXT_REQUIRED');assert.equal(f.calls.filter(c=>c.name==='page_type').length,0);
+});
+
+test('no-results recovery replaces cached text and records evidence without persisting values',async()=>{
+ const f=fixture(['TYPE_TEXT','TYPE_TEXT','BLOCKED','TYPE_TEXT','DONE']);
+ const call=f.deps.call;const typed:string[]=[];let recovered=false;
+ f.page.elements[0].value='';
+ f.deps.call=async(name,args,signal)=>{
+   if(name==='page_type'){
+     typed.push(String(args.text));f.calls.push({name,args});
+     f.page.elements[0].value=String(args.text);
+     f.page.text=args.text==='Osaka'?'Matching destination':'No matching destinations';
+     f.page.elements=f.page.elements.filter(e=>e.role!=='option');
+     if(args.text==='Osaka')f.page.elements.push({ref:'option',label:'Osaka',tag:'li',role:'option',operations:['CLICK']});
+     return {state:'completed',result:{ok:true,observation:structuredClone(f.page)}};
+   }
+   return call(name,args,signal);
+ };
+ f.deps.recover=async request=>{
+   assert.equal(request.page.elements[0].value,'Osaka-test-no-match-92817');
+   assert.equal(request.page.text,'No matching destinations');
+   recovered=true;
+   return {guidance:'Replace the rejected query, then inspect matching suggestions.',fields:[{label:'Name',text:'Osaka'}]};
+ };
+ const result=await runBrowserUse({goal:'Test a rejected query then recover',scope,fields:[{label:'Name',text:'Osaka-test-no-match-92817'}]},f.deps,new AbortController().signal);
+ assert(recovered);assert.equal(result.reason,'COMPLETION_CANDIDATE');assert.equal(typed.at(-1),'Osaka');
+ assert(result.trace?.events.some(e=>e.phase==='effect'&&e.valueMatched&&e.optionCount===0));
+ assert(result.trace?.events.some(e=>e.phase==='effect'&&e.valueMatched&&e.optionCount===1));
+ assert(!JSON.stringify(result.trace).includes('Osaka'));
+});
+test('unchanged click is not dispatched again even when recovery repeats guidance',async()=>{
+ const f=fixture(['CLICK','CLICK','CLICK','CLICK']);const call=f.deps.call;let clicks=0,thinking=0;
+ f.deps.call=async(name,args,signal)=>{
+   if(name==='page_click'){clicks++;return {state:'completed',result:{ok:true,observation:structuredClone(f.page)}};}
+   return call(name,args,signal);
+ };
+ f.deps.recover=async()=>{thinking++;return {guidance:'Inspect the control',fields:[]};};
+ const r=await runBrowserUse({goal:'Open control',scope},f.deps,new AbortController().signal);
+ assert.equal(clicks,1);assert.equal(thinking,2);assert.equal(r.reason,'NO_PROGRESS');
+ assert(r.trace?.events.some(e=>e.reason==='REPEATED_NO_EFFECT'));
 });

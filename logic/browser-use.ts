@@ -364,6 +364,7 @@ export async function runBrowserUse(
   // Rich context is ephemeral and stays inside the authorized inference boundary.
   const history: Array<Record<string, unknown>> = [];
   const fieldValues=[...input.fields];
+  const ineffectiveActions = new Map<string,string>();
   let recoveryCalls=0, refreshes=0, guidance:string|undefined;
   const plans=new Set<string>();
 
@@ -511,7 +512,7 @@ export async function runBrowserUse(
       if(old>=0)fieldValues[old]=f;else if(fieldValues.length<60)fieldValues.push(f);
     }
     guidance=plan.guidance??undefined;noProgress=0;
-    emit({phase:'recovery',reason:'THINKING_REPLAN'});
+    emit({phase:'recovery',reason:'THINKING_REPLAN',recoveryCalls,fieldsUpdated:plan.fields.filter(f=>page!.elements.filter(e=>normalizeLabel(e.label)===normalizeLabel(f.label)&&!e.sensitive&&e.in_viewport!==false&&e.operations.includes('TYPE_TEXT')).length===1).length});
     return true;
   }
   // A document can change while a read is executing (navigation/SPA repaint).
@@ -626,6 +627,8 @@ export async function runBrowserUse(
       for(const entry of history.slice(-8)) {
         const target=entry.target as {label?:string;role?:string}|undefined;
         if(entry.operation!=='TYPE_TEXT'||entry.outcome!=='confirmed'||typeof entry.text!=='string'||!target)continue;
+        const current=fieldValues.find(f=>normalizeLabel(f.label)===normalizeLabel(target.label??''));
+        if(current&&current.text!==entry.text)continue;
         const field=JSON.stringify([target.label,target.role]);
         const values=repeats.get(field)??new Map<string,number>();
         values.set(entry.text,(values.get(entry.text)??0)+1);repeats.set(field,values);
@@ -851,6 +854,12 @@ export async function runBrowserUse(
         checkInterruption(deps.interruptSignal);
         const actionPage=page;
         const actionTarget=page.elements.find(e=>e.ref===args.ref);
+        const actionKey=JSON.stringify([page.url,name,actionTarget?.label,actionTarget?.role,args.text,args.option_ref]);
+        if(ineffectiveActions.get(actionKey)===fingerprint(page)){
+          emit({phase:'recovery',reason:'REPEATED_NO_EFFECT',operation:op.choice});
+          if(await recoverLocally('REPEATED_NO_EFFECT'))return undefined;
+          return result('blocked','NO_PROGRESS');
+        }
         const operationId = randomUUID();
         const targetRef=typeof args.ref==="string"?args.ref:undefined;
         lastAction = { operationId, operation: op.choice, outcome: "unknown" };
@@ -923,13 +932,15 @@ export async function runBrowserUse(
             (await observeFresh()),
         );
         if(deps.recover&&name==='page_type'&&!focusOnly)await settlePage();
+        if(fingerprint(page)===fingerprint(actionPage))ineffectiveActions.set(actionKey,fingerprint(page));
+        else ineffectiveActions.delete(actionKey);
         if(actionTarget && !actionTarget.sensitive && page.url===actionPage.url){
           const matches=page.elements.filter(e=>e.label===actionTarget.label&&e.role===actionTarget.role&&e.tag===actionTarget.tag);
           const after=matches.length===1?matches[0]:undefined;
           const expected=after && !focusOnly && name==='page_type' && after.value===args.text && after.value!==actionTarget.value ? 'value-changed' :
             after && name==='page_select' && after.value!==actionTarget.value ? 'selection-changed' :
             after && name==='page_click' && after.expanded!==actionTarget.expanded && after.expanded!==undefined ? 'expanded-changed' : undefined;
-          emit({phase:"effect",operationId,operation:op.choice,effectObserved:!!expected,...(expected?{effect:expected}:{})});
+          emit({phase:"effect",operationId,operation:op.choice,effectObserved:!!expected,pageChanged:fingerprint(page)!==fingerprint(actionPage),...(name==='page_type'&&!focusOnly?{valueMatched:!!after&&after.value===args.text}:{}),optionCount:page.elements.filter(e=>e.role==='option').length,...(expected?{effect:expected}:{})});
         }
       }
       if (op.choice === "WAIT") steps++;
