@@ -8,8 +8,9 @@ const zod_1 = require("zod");
 const jev_loop_1 = require("@0xmaxma/jev-loop");
 exports.COMPUTER_USE_CONTRACT_VERSION = 1;
 const Control = zod_1.z.object({ ref: zod_1.z.string().min(1).max(100), label: zod_1.z.string().max(500), role: zod_1.z.string().max(100), value: zod_1.z.string().max(2000).optional(), focused: zod_1.z.boolean().optional(), actions: zod_1.z.array(zod_1.z.enum(['press', 'type'])), sensitive: zod_1.z.boolean().optional() });
-exports.ComputerObservation = zod_1.z.object({ generation: zod_1.z.string().min(1), application: zod_1.z.string(), controls: zod_1.z.array(Control).max(150), focusedControl: zod_1.z.object({ ref: zod_1.z.string().max(100).optional(), role: zod_1.z.string().max(100), label: zod_1.z.string().max(500), sensitive: zod_1.z.boolean().optional() }).optional(), windowTitle: zod_1.z.string().max(500).optional(), text: zod_1.z.array(zod_1.z.string().max(300)).max(80).optional(), truncated: zod_1.z.boolean(), platform: zod_1.z.object({ os: zod_1.z.string(), osVersion: zod_1.z.string(), appVersion: zod_1.z.string().optional() }).optional(), apps: zod_1.z.array(zod_1.z.object({ id: zod_1.z.string(), name: zod_1.z.string() })).max(100) });
-const Input = zod_1.z.object({ goal: zod_1.z.string().min(1).max(16000), revision: zod_1.z.number().int().positive().default(1), maxSteps: zod_1.z.number().int().min(1).max(100).default(30), timeoutMs: zod_1.z.number().int().min(1).max(600000).default(120000) }).strict();
+exports.ComputerObservation = zod_1.z.object({ screenshotAvailable: zod_1.z.boolean().optional(), visualSummary: zod_1.z.string().max(2500).optional(), generation: zod_1.z.string().min(1), application: zod_1.z.string(), controls: zod_1.z.array(Control).max(150), focusedControl: zod_1.z.object({ ref: zod_1.z.string().max(100).optional(), role: zod_1.z.string().max(100), label: zod_1.z.string().max(500), sensitive: zod_1.z.boolean().optional() }).optional(), windowTitle: zod_1.z.string().max(500).optional(), text: zod_1.z.array(zod_1.z.string().max(300)).max(80).optional(), truncated: zod_1.z.boolean(), platform: zod_1.z.object({ os: zod_1.z.string(), osVersion: zod_1.z.string(), appVersion: zod_1.z.string().optional() }).optional(), apps: zod_1.z.array(zod_1.z.object({ id: zod_1.z.string(), name: zod_1.z.string() })).max(100) });
+const PreparedInput = zod_1.z.object({ application: zod_1.z.string().min(1).max(200), label: zod_1.z.string().min(1).max(500), text: zod_1.z.string().max(2000), role: zod_1.z.string().max(100).optional(), windowTitle: zod_1.z.string().max(500).optional() }).strict();
+const Input = zod_1.z.object({ preparedInputs: zod_1.z.array(PreparedInput).max(30).default([]), goal: zod_1.z.string().min(1).max(16000), revision: zod_1.z.number().int().positive().default(1), maxSteps: zod_1.z.number().int().min(1).max(100).default(30), timeoutMs: zod_1.z.number().int().min(1).max(600000).default(120000) }).strict();
 const Choice = zod_1.z.object({ choice: zod_1.z.string(), confidence: zod_1.z.number().min(0).max(1), probabilities: zod_1.z.record(zod_1.z.number().min(0).max(1)) });
 const fingerprint = (s) => JSON.stringify([s.application, s.windowTitle, s.text, s.focusedControl && { role: s.focusedControl.role, label: s.focusedControl.label }, s.controls.map(({ ref, ...c }) => c), s.truncated]);
 async function runComputerUse(raw, deps, signal) {
@@ -19,6 +20,10 @@ async function runComputerUse(raw, deps, signal) {
     let satisfiedField;
     const history = [];
     const trace = [];
+    let visionUsed = false;
+    const observeVisual = async () => { if (!last || !deps.vision || !last.screenshotAvailable)
+        return; const summary = await deps.vision(last, runSignal); check(); if (summary)
+        last.visualSummary = summary.slice(0, 2500); deps.observation?.(last); };
     let previous;
     // In-run feedback is discarded on a goal revision; it is not learned or downloaded knowledge.
     const ineffective = new Map();
@@ -65,8 +70,12 @@ async function runComputerUse(raw, deps, signal) {
                 update();
                 emit('observing');
                 const started = Date.now();
+                const prior = last;
                 last = exports.ComputerObservation.parse(await call('computer_observe'));
+                if (prior?.visualSummary && fingerprint(prior) === fingerprint(last))
+                    last.visualSummary = prior.visualSummary;
                 check();
+                deps.observation?.(last);
                 if (previous) {
                     const changed = previous.signature !== fingerprint(last);
                     if (!changed) {
@@ -133,12 +142,21 @@ async function runComputerUse(raw, deps, signal) {
                     await new Promise((resolve, reject) => { const stop = () => { clearTimeout(t); reject(Error('CANCELLED')); }; const t = setTimeout(() => { runSignal.removeEventListener('abort', stop); resolve(); }, 250); runSignal.addEventListener('abort', stop, { once: true }); });
                     return;
                 }
-                if (d.action === 'BLOCKED')
+                if (d.action === 'BLOCKED') {
+                    if (!visionUsed && last?.screenshotAvailable && deps.vision) {
+                        visionUsed = true;
+                        await observeVisual();
+                        if (last?.visualSummary)
+                            return;
+                    }
                     return result('blocked', 'NO_SUPPORTED_ACTION');
+                }
                 if (d.action === 'DONE') {
                     emit('verifying');
                     last = exports.ComputerObservation.parse(await call('computer_observe'));
                     check();
+                    deps.observation?.(last);
+                    await observeVisual();
                     (0, interrupt_js_1.checkInterruption)(deps.interruptSignal);
                     update();
                     if (goal.revision !== d.revision)
@@ -159,10 +177,14 @@ async function runComputerUse(raw, deps, signal) {
                     return result('blocked', 'ACTION_BUDGET');
                 const action = { ...d.targets.get(d.action) };
                 if (action.kind === 'type') {
-                    if (!deps.thinking)
+                    const target = last?.controls.find(c => c.ref === action.ref);
+                    const normalize = (s) => s.trim().toLocaleLowerCase();
+                    const prepared = goal.revision === input.revision && target && !target.sensitive && last?.controls.filter(c => normalize(c.label) === normalize(target.label) && c.role === target.role).length === 1 ? input.preparedInputs.filter(p => p.application === last?.application && normalize(p.label) === normalize(target.label) && (!p.role || p.role === target.role) && (!p.windowTitle || p.windowTitle === last?.windowTitle)) : [];
+                    if (prepared.length !== 1 && !deps.thinking)
                         return result('needs_input', 'FIELD_TEXT_REQUIRED');
-                    emit('thinking', summary(action));
-                    const text = zod_1.z.object({ text: zod_1.z.string().max(2000).nullable() }).strict().parse(await ctx.think({ goal: goal.goal, control: last?.controls.find(c => c.ref === action.ref), application: last?.application, windowTitle: last?.windowTitle, visibleText: last?.text, controls: last?.controls }));
+                    if (prepared.length !== 1)
+                        emit('thinking', summary(action));
+                    const text = prepared.length === 1 ? { text: prepared[0].text } : zod_1.z.object({ text: zod_1.z.string().max(2000).nullable() }).strict().parse(await ctx.think({ goal: goal.goal, control: target, application: last?.application, windowTitle: last?.windowTitle, visibleText: last?.text, controls: last?.controls }));
                     check();
                     (0, interrupt_js_1.checkInterruption)(deps.interruptSignal);
                     update();

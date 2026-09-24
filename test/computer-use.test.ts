@@ -140,3 +140,20 @@ test('acquisition recovery preserves the old operation and never starts inferenc
  const r=await runComputerUse({goal:'Search'},f.deps,new AbortController().signal);
  assert.equal(r.operationId,operation);assert.equal(r.status,'needs_reconciliation');assert.equal(r.evaluations,0);assert.equal(r.steps,0);
 });
+test('prepared field values bypass Thinking only for a unique current app/field match',async()=>{
+ for(const application of ['com.apple.Notes','com.other.App']){
+  const f=fixture(['type:c1','DONE']);let calls=0;f.deps.thinking=async()=>{calls++;return {text:'fallback'};};
+  await runComputerUse({goal:'Create a note',preparedInputs:[{application,label:'Note',text:'prepared'}]},f.deps,new AbortController().signal);
+  assert.equal(calls,application==='com.apple.Notes'?0:1);
+  assert.equal(f.calls.find(x=>x.name==='computer_action').args.text,application==='com.apple.Notes'?'prepared':'fallback');
+ }
+});
+test('ambiguous prepared fields do not bypass Thinking',async()=>{
+ const f=fixture(['type:c1','DONE']);f.state.controls.push({...f.state.controls[0],ref:'c2'});let calls=0;f.deps.thinking=async()=>{calls++;return {text:'fallback'};};
+ await runComputerUse({goal:'Create a note',preparedInputs:[{application:'com.apple.Notes',label:'Note',text:'prepared'}]},f.deps,new AbortController().signal);assert.equal(calls,1);
+});
+test('visual evidence helps a blocked decision and independently verifies the goal',async()=>{
+ const f=fixture(['BLOCKED','DONE']);(f.state as any).screenshotAvailable=true;let images=0,observed=0;
+ f.deps.observation=()=>{observed++;};f.deps.vision=async()=>{images++;return 'Visible requested map location';};f.deps.verify=async state=>state.visualSummary==='Visible requested map location';
+ const result=await runComputerUse({goal:'Inspect'},f.deps,new AbortController().signal);assert.equal(result.status,'succeeded');assert.equal(images,2);assert.ok(observed>0);
+});

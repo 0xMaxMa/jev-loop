@@ -5,7 +5,7 @@ import {runLoop} from '@0xmaxma/jev-loop';
 
 export const COMPUTER_USE_CONTRACT_VERSION = 1;
 const Control=z.object({ref:z.string().min(1).max(100),label:z.string().max(500),role:z.string().max(100),value:z.string().max(2000).optional(),focused:z.boolean().optional(),actions:z.array(z.enum(['press','type'])),sensitive:z.boolean().optional()});
-export const ComputerObservation=z.object({generation:z.string().min(1),application:z.string(),controls:z.array(Control).max(150),focusedControl:z.object({ref:z.string().max(100).optional(),role:z.string().max(100),label:z.string().max(500),sensitive:z.boolean().optional()}).optional(),windowTitle:z.string().max(500).optional(),text:z.array(z.string().max(300)).max(80).optional(),truncated:z.boolean(),platform:z.object({os:z.string(),osVersion:z.string(),appVersion:z.string().optional()}).optional(),apps:z.array(z.object({id:z.string(),name:z.string()})).max(100)});
+export const ComputerObservation=z.object({screenshotAvailable:z.boolean().optional(),visualSummary:z.string().max(2500).optional(),generation:z.string().min(1),application:z.string(),controls:z.array(Control).max(150),focusedControl:z.object({ref:z.string().max(100).optional(),role:z.string().max(100),label:z.string().max(500),sensitive:z.boolean().optional()}).optional(),windowTitle:z.string().max(500).optional(),text:z.array(z.string().max(300)).max(80).optional(),truncated:z.boolean(),platform:z.object({os:z.string(),osVersion:z.string(),appVersion:z.string().optional()}).optional(),apps:z.array(z.object({id:z.string(),name:z.string()})).max(100)});
 export type ComputerState=z.infer<typeof ComputerObservation>;
 export interface GoalRevision {revision:number;goal:string}
 /** Structural diagnostics only: no typed text, window contents or private field labels. */
@@ -20,6 +20,8 @@ export interface ComputerUseDependencies {
  interruptSignal?:AbortSignal;
  call(name:string,args:Record<string,unknown>,signal:AbortSignal):Promise<unknown>;
  evaluate(request:{state:unknown;questions:Record<string,{type:'choice';instructions:string;criteria:Record<string,string>}>;requestId:string},signal:AbortSignal):Promise<{answers:Record<string,unknown>}>;
+ observation?:(state:ComputerState)=>void;
+ vision?:(state:ComputerState,signal:AbortSignal)=>Promise<string|undefined>;
  thinking?:(request:unknown,signal:AbortSignal)=>Promise<unknown>;
  latestGoal?:()=>GoalRevision;authorized:()=>boolean;
  beforeMutation:(operationId:string,action:unknown)=>Promise<void>|void;
@@ -27,7 +29,8 @@ export interface ComputerUseDependencies {
  verify?:(state:ComputerState,goal:string,signal:AbortSignal)=>Promise<boolean>;
 }
 export interface ComputerUseResult {status:'succeeded'|'needs_verification'|'needs_input'|'blocked'|'cancelled'|'needs_reconciliation';reason:string;revision:number;steps:number;evaluations:number;trace:{events:ComputerProgress[];truncated:boolean};operationId?:string;observation?:ComputerState}
-const Input=z.object({goal:z.string().min(1).max(16000),revision:z.number().int().positive().default(1),maxSteps:z.number().int().min(1).max(100).default(30),timeoutMs:z.number().int().min(1).max(600000).default(120000)}).strict();
+const PreparedInput=z.object({application:z.string().min(1).max(200),label:z.string().min(1).max(500),text:z.string().max(2000),role:z.string().max(100).optional(),windowTitle:z.string().max(500).optional()}).strict();
+const Input=z.object({preparedInputs:z.array(PreparedInput).max(30).default([]),goal:z.string().min(1).max(16000),revision:z.number().int().positive().default(1),maxSteps:z.number().int().min(1).max(100).default(30),timeoutMs:z.number().int().min(1).max(600000).default(120000)}).strict();
 const Choice=z.object({choice:z.string(),confidence:z.number().min(0).max(1),probabilities:z.record(z.number().min(0).max(1))});
 const fingerprint=(s:ComputerState)=>JSON.stringify([s.application,s.windowTitle,s.text,s.focusedControl&&{role:s.focusedControl.role,label:s.focusedControl.label},s.controls.map(({ref,...c})=>c),s.truncated]);
 export async function runComputerUse(raw:unknown,deps:ComputerUseDependencies,signal:AbortSignal):Promise<ComputerUseResult>{
@@ -36,7 +39,8 @@ export async function runComputerUse(raw:unknown,deps:ComputerUseDependencies,si
  let lease:string|undefined,pending:string|undefined,last:ComputerState|undefined;
  let satisfiedField:{ref:string;application:string;windowTitle?:string;label:string;role:string;value:string}|undefined;
  const history:Array<{action:string;target?:{label:string;role:string};key?:string;changed:boolean}>=[];
- const trace:ComputerProgress[]=[];
+ const trace:ComputerProgress[]=[];let visionUsed=false;
+ const observeVisual=async()=>{if(!last||!deps.vision||!last.screenshotAvailable)return;const summary=await deps.vision(last,runSignal);check();if(summary)last.visualSummary=summary.slice(0,2500);deps.observation?.(last);};
  let previous:{signature:string;identity:string;action:Record<string,unknown>;field?:ComputerState['controls'][number]}|undefined;
  // In-run feedback is discarded on a goal revision; it is not learned or downloaded knowledge.
  const ineffective=new Map<string,number>();
@@ -61,7 +65,7 @@ export async function runComputerUse(raw:unknown,deps:ComputerUseDependencies,si
    signal:runSignal,maxCycles:input.maxSteps*3+5,stageTimeoutMs:input.timeoutMs,
    thinking:deps.thinking?(r,s)=>interruptible(child=>deps.thinking!(r,child),s,deps.interruptSignal):undefined,maxThinkingCalls:input.maxSteps,thinkingTimeoutMs:60000,
    observe:async ctx=>{
-    round=ctx.cycle+1;check();checkInterruption(deps.interruptSignal);update();emit('observing');const started=Date.now();last=ComputerObservation.parse(await call('computer_observe'));check();
+    round=ctx.cycle+1;check();checkInterruption(deps.interruptSignal);update();emit('observing');const started=Date.now();const prior=last;last=ComputerObservation.parse(await call('computer_observe'));if(prior?.visualSummary&&fingerprint(prior)===fingerprint(last))last.visualSummary=prior.visualSummary;check();deps.observation?.(last);
     if(previous){
      const changed=previous.signature!==fingerprint(last);
      if(!changed){if(ineffective.size>=100&&!ineffective.has(previous.identity))ineffective.clear();ineffective.set(previous.identity,(ineffective.get(previous.identity)??0)+1);}
@@ -97,9 +101,9 @@ export async function runComputerUse(raw:unknown,deps:ComputerUseDependencies,si
    execute:async(d,ctx)=>{
     check();checkInterruption(deps.interruptSignal);update();if(goal.revision!==d.revision)return;
     if(d.action==='WAIT'){emit('waiting');await new Promise<void>((resolve,reject)=>{const stop=()=>{clearTimeout(t);reject(Error('CANCELLED'));};const t=setTimeout(()=>{runSignal.removeEventListener('abort',stop);resolve();},250);runSignal.addEventListener('abort',stop,{once:true});});return;}
-    if(d.action==='BLOCKED')return result('blocked','NO_SUPPORTED_ACTION');
+    if(d.action==='BLOCKED'){if(!visionUsed&&last?.screenshotAvailable&&deps.vision){visionUsed=true;await observeVisual();if(last?.visualSummary)return;}return result('blocked','NO_SUPPORTED_ACTION');}
     if(d.action==='DONE'){
-     emit('verifying');last=ComputerObservation.parse(await call('computer_observe'));check();checkInterruption(deps.interruptSignal);update();if(goal.revision!==d.revision)return;
+     emit('verifying');last=ComputerObservation.parse(await call('computer_observe'));check();deps.observation?.(last);await observeVisual();checkInterruption(deps.interruptSignal);update();if(goal.revision!==d.revision)return;
      if(last.truncated||!deps.verify)return result('needs_verification','COMPLETION_CANDIDATE');
      const verified=await interruptible(verifySignal=>deps.verify!(last!,goal.goal,verifySignal),runSignal,deps.interruptSignal);check();checkInterruption(deps.interruptSignal);update();if(goal.revision!==d.revision)return;
      if(typeof verified!=='boolean')throw Error('INVALID_VERIFICATION');
@@ -108,9 +112,12 @@ export async function runComputerUse(raw:unknown,deps:ComputerUseDependencies,si
     if(steps>=input.maxSteps)return result('blocked','ACTION_BUDGET');
     const action={...d.targets.get(d.action)!};
     if(action.kind==='type'){
-     if(!deps.thinking)return result('needs_input','FIELD_TEXT_REQUIRED');
-     emit('thinking',summary(action));
-     const text=z.object({text:z.string().max(2000).nullable()}).strict().parse(await ctx.think({goal:goal.goal,control:last?.controls.find(c=>c.ref===action.ref),application:last?.application,windowTitle:last?.windowTitle,visibleText:last?.text,controls:last?.controls}));
+     const target=last?.controls.find(c=>c.ref===action.ref);
+     const normalize=(s:string)=>s.trim().toLocaleLowerCase();
+     const prepared=goal.revision===input.revision&&target&&!target.sensitive&&last?.controls.filter(c=>normalize(c.label)===normalize(target.label)&&c.role===target.role).length===1 ? input.preparedInputs.filter(p=>p.application===last?.application&&normalize(p.label)===normalize(target.label)&&(!p.role||p.role===target.role)&&(!p.windowTitle||p.windowTitle===last?.windowTitle)) : [];
+     if(prepared.length!==1&&!deps.thinking)return result('needs_input','FIELD_TEXT_REQUIRED');
+     if(prepared.length!==1)emit('thinking',summary(action));
+     const text=prepared.length===1?{text:prepared[0].text}:z.object({text:z.string().max(2000).nullable()}).strict().parse(await ctx.think({goal:goal.goal,control:target,application:last?.application,windowTitle:last?.windowTitle,visibleText:last?.text,controls:last?.controls}));
      check();checkInterruption(deps.interruptSignal);update();if(goal.revision!==d.revision)return;
      if(text.text===null)return result('needs_input','FIELD_TEXT_REQUIRED');
      const field=last?.controls.find(c=>c.ref===action.ref);
