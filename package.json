@@ -36,6 +36,10 @@
     "./browser-thinking": {
       "types": "./browser-thinking.d.ts",
       "default": "./browser-thinking.cjs"
+    },
+    "./computer-thinking": {
+      "types": "./computer-thinking.d.ts",
+      "default": "./computer-thinking.cjs"
     }
   },
   "files": [

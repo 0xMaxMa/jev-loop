@@ -229,3 +229,15 @@ requires independent verification.
 reasoning backed by the shared Thinking transport. Recovery may include a single
 scoped screenshot as actual multimodal content. No credentials are stored in the
 loop; the host supplies model configuration and authenticated browser access.
+
+### Reasoning ownership
+
+Loop-owned reasoning instructions cover literal field planning, search text,
+relative-date grounding with a supplied reference time/timezone, category counts,
+no-progress feedback and missing-fact escalation. Browser and Computer Use share
+these instructions. `@0xmaxma/jev-loop/computer-thinking` exposes desktop field
+reasoning with the same strict literal-or-null contract and optional scoped image.
+Prepared values still bypass inference. Hosts provide credentials and optional
+reference context; they retain authorization, task lifecycle, durable mutation
+receipts and independent completion verification. Thinking cannot execute tools,
+change the goal, grant consent, or resolve an unknown action outcome.
