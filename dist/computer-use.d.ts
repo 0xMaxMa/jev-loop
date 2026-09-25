@@ -152,6 +152,8 @@ export interface ComputerProgress {
     steps: number;
     evaluations: number;
     phase: 'observing' | 'observed' | 'evaluating' | 'decided' | 'thinking' | 'verifying' | 'acting' | 'acted' | 'waiting' | 'reconciling' | 'terminal';
+    application?: string;
+    appId?: string;
     action?: 'open' | 'press' | 'type' | 'key' | 'scroll' | 'navigate' | 'WAIT' | 'DONE' | 'BLOCKED';
     key?: string;
     ref?: string;

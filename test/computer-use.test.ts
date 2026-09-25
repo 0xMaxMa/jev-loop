@@ -205,3 +205,16 @@ test('control slice returns after one confirmed action and captures its screen',
  const r=await runComputerUse({goal:'Continue',yieldAfterAction:true},f.deps,new AbortController().signal);
  assert.equal(r.reason,'COMMAND_WAITING_INPUT');assert.equal(r.steps,1);assert.equal(r.evaluations,1);assert.equal(captures,1);assert.notEqual(r.status,'succeeded');
 });
+
+test('app switching hands over after three opens even when every screen changes',async()=>{
+ for(const fallback of [false,true]){
+  const f=fixture([]);f.state.apps=[{id:'a',name:'A'},{id:'b',name:'B'}];f.state.application='a';f.state.controls=[];
+  let decisions=0,thinking=0;const call=f.deps.call;
+  f.deps.call=async(n,a,s)=>{if(n==='computer_action')f.state.application=String(a.app_id);return call(n,a,s);};
+  f.deps.evaluate=async req=>{decisions++;const choice=f.state.application==='a'?'open:b':'open:a';return {answers:{action:{choice,confidence:1,probabilities:Object.fromEntries(Object.keys(req.questions.action.criteria).map(k=>[k,k===choice?1:0]))}}};};
+  if(fallback)f.deps.decideAction=async req=>{thinking++;assert.equal((req.recentActions.at(-1) as any).appId,'b');return {action:null,text:null};};
+  const r=await runComputerUse({goal:'Open B'},f.deps,new AbortController().signal);
+  assert.equal(r.status,'needs_input');assert.equal(r.steps,3);assert.equal(decisions,3);assert.equal(thinking,fallback?1:0);
+  assert(r.trace.events.some(e=>e.appId==='b'));
+ }
+});
