@@ -32,6 +32,18 @@
     "./browser-trace": {
       "types": "./dist/browser-trace.d.ts",
       "default": "./dist/browser-trace.js"
+    },
+    "./browser-thinking": {
+      "types": "./browser-thinking.d.ts",
+      "default": "./browser-thinking.cjs"
+    },
+    "./computer-thinking": {
+      "types": "./computer-thinking.d.ts",
+      "default": "./computer-thinking.cjs"
+    },
+    "./action-thinking": {
+      "types": "./action-thinking.d.ts",
+      "default": "./action-thinking.cjs"
     }
   },
   "files": [

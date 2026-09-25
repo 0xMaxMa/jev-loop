@@ -212,3 +212,66 @@ is reported separately as `owner_acknowledged: true`, not fabricated completion.
 Computer Use accepts `preparedInputs` entries with `application` (bundle ID), `label`, `text`, and optional `role`/`windowTitle`. A value bypasses text resolution only when the current observation identifies exactly one matching field. A new goal revision invalidates the old plan. Missing values return `needs_input` for the calling agent to resolve; the core does not require a separate Thinking model.
 
 Hosts may supply `observation(state)` and `snapshot(state, signal)` callbacks. The loop calls the latter before asking for missing text, reporting a completion candidate, or yielding a blocked decision, when the MCP observation advertises screenshot support. The host attaches the scoped window image to the parent agent, which can interpret the screen and prepare remaining inputs. Pixels never authorize actions or replace fresh MCP target/generation checks. System audio is not part of this contract.
+
+### Browser recovery inside the loop
+
+Browser runs accept optional `resolveFieldText`, `recover` and `snapshot` host
+callbacks. Prepared values bypass text inference. The loop waits and observes
+again after typing, refreshes before treating a blocked decision as a failure,
+and permits at most two local recovery plans. A plan supplies bounded guidance
+and literal values for unique visible fields, never executable operations or a
+replacement goal. Confirmed field values are reused; stale attempts are not cached.
+Unknown mutation outcomes stop immediately without recovery or replay. Missing
+facts still return `FIELD_TEXT_REQUIRED` to the parent, and completion still
+requires independent verification.
+
+`@0xmaxma/jev-loop/browser-thinking` provides tool-free field and recovery
+reasoning backed by the shared Thinking transport. Recovery may include a single
+scoped screenshot as actual multimodal content. No credentials are stored in the
+loop; the host supplies model configuration and authenticated browser access.
+
+### Reasoning ownership
+
+Loop-owned reasoning instructions cover literal field planning, search text,
+relative-date grounding with a supplied reference time/timezone, category counts,
+no-progress feedback and missing-fact escalation. Browser and Computer Use share
+these instructions. `@0xmaxma/jev-loop/computer-thinking` exposes desktop field
+reasoning with the same strict literal-or-null contract and optional scoped image.
+Prepared values still bypass inference. Hosts provide credentials and optional
+reference context; they retain authorization, task lifecycle, durable mutation
+receipts and independent completion verification. Thinking cannot execute tools,
+change the goal, grant consent, or resolve an unknown action outcome.
+
+### One-action Thinking fallback
+
+Browser and Computer Use hosts can supply `decideAction` in addition to Jev
+`evaluate`. Three consecutive attempts without observed progress transfer the
+next decision to Thinking. Three successful/progressing actions do not trigger
+this fallback. Thinking chooses one action, then returns control to Jev. Another
+three no-progress outcomes after that fallback yield `THINKING_WAITING_INPUT`
+instead of repeatedly invoking Thinking. A new command starts with Jev again.
+
+Hosts can set `yieldAfterAction: true` to return `COMMAND_WAITING_INPUT` after
+one confirmed mutation with fresh evidence. The host agent or user chooses the
+next command on the same session. This return is not a success claim. Unknown
+mutations remain fenced and never yield an executable continuation.
+
+`@0xmaxma/jev-loop/action-thinking` exports `thinkAction` and `thinkChoices`.
+The latter batches up to eight independent choice questions in one multimodal
+request. Options use request-local numeric string IDs (`"0"`, `"1"`, …), decoded
+by the host; IDs must never be reused against another frame. The response contains
+only `answers`, plus literal `text` exclusively for a selected typing action.
+Extra fields, prose, missing answers and non-offered IDs are rejected. No model
+confidence is fabricated or interpreted as verified completion.
+
+Takeover receives the original/current goal, bounded recent outcomes, a fresh
+approved screenshot and supported actions. It selects one action, then observes
+again. It does not emit an action script or queue clicks against stale targets.
+Generation/ownership checks, durable operation receipts, interruption and unknown
+outcome reconciliation remain in force. Unknown actions never trigger replay or
+model escalation. A changed screen invalidates the inferred decision.
+
+Computer observations may advertise `supportedActions`: `scroll:up`,
+`scroll:down`, `navigate:back`, `navigate:forward`. Hosts without these capabilities
+continue to work and these actions are not offered. Screenshots do not authorize
+arbitrary coordinate clicks or shell commands.

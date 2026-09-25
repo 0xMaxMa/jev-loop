@@ -232,7 +232,7 @@ test("no progress and budgets bound action loops", async () => {
     new AbortController().signal,
   );
   assert.equal(r.reason, "NO_PROGRESS");
-  assert.equal(r.steps, 4);
+  assert.equal(r.steps, 2);
   const g = fixture(["CLICK", "CLICK"]);
   const b = await runBrowserUse(
     { goal: "Click", scope, maxSteps: 1 },
@@ -930,4 +930,165 @@ test('repeated text replacements offer other controls despite unrelated DOM chan
  const call=f.deps.call;let n=0;f.deps.call=async(name,args,signal)=>{if(name==='page_type'){f.calls.push({name,args});f.page.text='Changing price '+(++n);return {state:'completed',result:{ok:true,observation:structuredClone(f.page)}};}return call(name,args,signal);};
  const r=await runBrowserUse({goal:'Fill then apply',scope,fields:[{label:'Name',text:'same'}]},f.deps,new AbortController().signal);
  assert.equal(r.reason,'COMPLETION_CANDIDATE');assert.equal(f.calls.filter(c=>c.name==='page_type').length,2);assert.equal(f.calls.filter(c=>c.name==='page_click').length,1);
+});
+
+test('blocked loop refreshes then thinks locally and keeps literal recovery values separate from guidance',async()=>{
+ const f=fixture(['BLOCKED','TYPE_TEXT','DONE']);let calls=0;
+ f.deps.recover=async r=>{calls++;assert.equal(r.reason,'NO_SUPPORTED_ACTION');assert.equal(r.goal,'Find the named place');return {guidance:'Use the exact query and inspect suggestions.',fields:[{label:'Name',text:'Osaka'}]};};
+ const r=await runBrowserUse({goal:'Find the named place',scope},f.deps,new AbortController().signal);
+ assert.equal(calls,1);assert.equal(r.reason,'COMPLETION_CANDIDATE');assert.equal(f.calls.find(c=>c.name==='page_type')?.args.text,'Osaka');
+ assert.ok(r.trace?.events.some(e=>e.reason==='THINKING_REPLAN'));
+});
+test('local recovery is bounded and never runs after an unknown mutation',async()=>{
+ for(const unknown of [false,true]){
+  const f=fixture(unknown?['CLICK']:['BLOCKED','BLOCKED','BLOCKED','BLOCKED']);let thoughts=0;
+  f.deps.recover=async()=>{thoughts++;return {guidance:'Inspect another control '+thoughts,fields:[]};};
+  const original=f.deps.call;f.deps.call=async(n,a,s)=>n==='page_click'&&unknown?{state:'unknown'}:original(n,a,s);
+  const r=await runBrowserUse({goal:'Find place',scope},f.deps,new AbortController().signal);
+  assert.equal(thoughts,unknown?0:2);assert.equal(r.reason,unknown?'OUTCOME_UNKNOWN':'NO_SUPPORTED_ACTION');
+ }
+});
+test('missing facts return to parent without fabricated field text',async()=>{
+ const f=fixture(['TYPE_TEXT']);f.deps.resolveFieldText=async()=>({text:null});
+ const r=await runBrowserUse({goal:'Enter an unknown child age',scope},f.deps,new AbortController().signal);
+ assert.equal(r.reason,'FIELD_TEXT_REQUIRED');assert.equal(f.calls.filter(c=>c.name==='page_type').length,0);
+});
+
+test('no-results recovery replaces cached text and records evidence without persisting values',async()=>{
+ const f=fixture(['TYPE_TEXT','TYPE_TEXT','BLOCKED','TYPE_TEXT','DONE']);
+ const call=f.deps.call;const typed:string[]=[];let recovered=false;
+ f.page.elements[0].value='';
+ f.deps.call=async(name,args,signal)=>{
+   if(name==='page_type'){
+     typed.push(String(args.text));f.calls.push({name,args});
+     f.page.elements[0].value=String(args.text);
+     f.page.text=args.text==='Osaka'?'Matching destination':'No matching destinations';
+     f.page.elements=f.page.elements.filter(e=>e.role!=='option');
+     if(args.text==='Osaka')f.page.elements.push({ref:'option',label:'Osaka',tag:'li',role:'option',operations:['CLICK']});
+     return {state:'completed',result:{ok:true,observation:structuredClone(f.page)}};
+   }
+   return call(name,args,signal);
+ };
+ f.deps.recover=async request=>{
+   assert.equal(request.page.elements[0].value,'Osaka-test-no-match-92817');
+   assert.equal(request.page.text,'No matching destinations');
+   recovered=true;
+   return {guidance:'Replace the rejected query, then inspect matching suggestions.',fields:[{label:'Name',text:'Osaka'}]};
+ };
+ const result=await runBrowserUse({goal:'Test a rejected query then recover',scope,fields:[{label:'Name',text:'Osaka-test-no-match-92817'}]},f.deps,new AbortController().signal);
+ assert(recovered);assert.equal(result.reason,'COMPLETION_CANDIDATE');assert.equal(typed.at(-1),'Osaka');
+ assert(result.trace?.events.some(e=>e.phase==='effect'&&e.valueMatched&&e.optionCount===0));
+ assert(result.trace?.events.some(e=>e.phase==='effect'&&e.valueMatched&&e.optionCount===1));
+ assert(!JSON.stringify(result.trace).includes('Osaka'));
+});
+test('unchanged click is not dispatched again even when recovery repeats guidance',async()=>{
+ const f=fixture(['CLICK','CLICK','CLICK','CLICK']);const call=f.deps.call;let clicks=0,thinking=0;
+ f.deps.call=async(name,args,signal)=>{
+   if(name==='page_click'){clicks++;return {state:'completed',result:{ok:true,observation:structuredClone(f.page)}};}
+   return call(name,args,signal);
+ };
+ f.deps.recover=async()=>{thinking++;return {guidance:'Inspect the control',fields:[]};};
+ const r=await runBrowserUse({goal:'Open control',scope},f.deps,new AbortController().signal);
+ assert.equal(clicks,1);assert.equal(thinking,2);assert.equal(r.reason,'NO_PROGRESS');
+ assert(r.trace?.events.some(e=>e.reason==='REPEATED_NO_EFFECT'));
+});
+
+test('an already populated field is observed instead of retyped',async()=>{
+ for(const example of [
+  {url:'https://shop.fixture.test',label:'Search products',value:'wireless mouse'},
+  {url:'https://mail.fixture.test',label:'Search mail',value:'from:example.com'},
+  {url:'https://form.fixture.test',label:'City',value:'Osaka'},
+ ]){
+  const f=fixture(['TYPE_TEXT','DONE']);f.page.url=example.url;
+  Object.assign(f.page.elements[0],{label:example.label,value:example.value,value_truncated:false});
+  const r=await runBrowserUse({goal:'Use the existing field value',scope,fields:[{label:example.label,text:example.value}]},f.deps,new AbortController().signal);
+  assert.equal(r.reason,'COMPLETION_CANDIDATE');assert(!f.calls.some(c=>c.name==='page_type'));
+  assert(r.trace?.events.some(e=>e.reason==='FIELD_VALUE_ALREADY_PRESENT'));
+ }
+});
+test('unchanged populated field cannot spin indefinitely',async()=>{
+ const f=fixture(['TYPE_TEXT','TYPE_TEXT','TYPE_TEXT']);f.page.elements[0].value='Osaka';
+ const r=await runBrowserUse({goal:'Find destination',scope,fields:[{label:'Name',text:'Osaka'}]},f.deps,new AbortController().signal);
+ assert.equal(r.reason,'NO_PROGRESS');assert.equal(r.steps,0);assert.equal(r.evaluations,2);
+ assert(!f.calls.some(c=>c.name==='page_type'));
+});
+test('thinking result uses freshly observed generation and reference for the same field',async()=>{
+ const f=fixture(['TYPE_TEXT','DONE']);let thoughts=0;
+ f.deps.resolveFieldText=async()=>{thoughts++;f.page.generation='g-after-thinking';f.page.elements[0].ref='fresh-ref';return {text:'Osaka'};};
+ const r=await runBrowserUse({goal:'Fill destination',scope},f.deps,new AbortController().signal);
+ assert.equal(thoughts,1);assert.equal(r.reason,'COMPLETION_CANDIDATE');
+ const action=f.calls.find(c=>c.name==='page_type');assert.equal(action?.args.generation,'g-after-thinking');assert.equal(action?.args.ref,'fresh-ref');
+ assert(r.trace?.events.some(e=>e.reason==='FIELD_CONTEXT_REVALIDATED'));
+});
+test('thinking result is discarded when navigation or field context changes',async()=>{
+ for(const change of ['url','context','value','sensitive','readonly','duplicate']){
+  const f=fixture(['TYPE_TEXT','DONE']);
+  f.deps.resolveFieldText=async()=>{
+   if(change==='url')f.page.url='https://different.fixture.test';
+   else if(change==='duplicate')f.page.elements.push({...f.page.elements[0],ref:'duplicate'});
+   else if(change==='sensitive'||change==='readonly')f.page.elements[0][change]=true;
+   else f.page.elements[0][change]='changed';
+   return {text:'obsolete'};
+  };
+  const r=await runBrowserUse({goal:'Fill field',scope},f.deps,new AbortController().signal);
+  assert(!f.calls.some(c=>c.name==='page_type'),change);
+  assert(r.trace?.events.some(e=>e.reason==='FIELD_CONTEXT_CHANGED'),change);
+ }
+});
+
+test('recovery plan for a changed page is discarded before its field values are applied',async()=>{
+ const f=fixture(['BLOCKED','TYPE_TEXT']);
+ f.deps.recover=async()=>{f.page.url='https://new.fixture.test';return {guidance:'Use previous value',fields:[{label:'Name',text:'obsolete'}]};};
+ const r=await runBrowserUse({goal:'Fill name',scope},f.deps,new AbortController().signal);
+ assert.equal(r.reason,'FIELD_TEXT_REQUIRED');assert(!f.calls.some(c=>c.name==='page_type'));
+ assert(r.trace?.events.some(e=>e.reason==='RECOVERY_CONTEXT_CHANGED'));
+});
+test('alternating UI states trigger recovery instead of exhausting the action budget',async()=>{
+ const f=fixture(Array(12).fill('CLICK'));const call=f.deps.call;let clicks=0,recovered=0;
+ f.deps.call=async(name,args,signal)=>{
+  if(name==='page_click'){clicks++;f.page.text=clicks%2?'Dialog open':'Dialog closed';return {state:'completed',result:{ok:true,observation:structuredClone(f.page)}};}
+  return call(name,args,signal);
+ };
+ f.deps.recover=async r=>{assert.equal(r.reason,'REPEATED_STATE');recovered++;return {guidance:null,fields:[]};};
+ const r=await runBrowserUse({goal:'Finish form',scope,maxSteps:12},f.deps,new AbortController().signal);
+ assert.equal(r.reason,'NO_PROGRESS');assert.equal(recovered,1);assert.equal(clicks,5);
+ assert(r.trace?.events.some(e=>e.reason==='REPEATED_STATE'));
+});
+test('changing counter values do not look like a repeated UI state',async()=>{
+ const f=fixture([...Array(6).fill('CLICK'),'DONE']);const call=f.deps.call;let count=0;
+ f.deps.call=async(name,args,signal)=>{
+  if(name==='page_click'){f.page.elements[0].context='Count '+(++count);return {state:'completed',result:{ok:true,observation:structuredClone(f.page)}};}
+  return call(name,args,signal);
+ };
+ const r=await runBrowserUse({goal:'Set count to six',scope},f.deps,new AbortController().signal);
+ assert.equal(r.reason,'COMPLETION_CANDIDATE');assert.equal(count,6);
+});
+
+test('three unsupported decisions transfer browser control to Thinking with screenshot',async()=>{
+ const f=fixture(['BLOCKED','BLOCKED','BLOCKED']);let count=0;
+ f.deps.snapshot=async()=>({mimeType:'image/png',data:'aA=='});
+ f.deps.decideAction=async req=>{assert.equal(req.screenshot?.data,'aA==');count++;return {action:count===1?'CLICK:e1':'DONE',text:null};};
+ const r=await runBrowserUse({contractVersion:1,goal:'Submit',scope},f.deps,new AbortController().signal);
+ assert.equal(r.evaluations,4);assert.equal(count,1);assert.equal(r.steps,1);assert.equal(r.status,'needs_verification');
+});
+test('browser Thinking null stays waiting and never executes arbitrary model action',async()=>{
+ for(const action of [null,'arbitrary:execute']){
+ const f=fixture(['BLOCKED','BLOCKED','BLOCKED']);f.deps.snapshot=async()=>({mimeType:'image/png',data:'aA=='});f.deps.decideAction=async()=>({action,text:null});
+ const r=await runBrowserUse({contractVersion:1,goal:'Submit',scope},f.deps,new AbortController().signal);
+ assert.equal(r.reason,action===null?'THINKING_WAITING_INPUT':'INVALID_DECISION');assert.equal(r.steps,0);
+ }
+});
+
+test('control slice returns fresh evidence after one action without claiming success',async()=>{
+ const f=fixture(['CLICK','CLICK','DONE']);
+ const r=await runBrowserUse({goal:'Continue',scope,yieldAfterAction:true},f.deps,new AbortController().signal);
+ assert.equal(r.reason,'COMMAND_WAITING_INPUT');assert.equal(r.steps,1);assert.equal(r.evaluations,1);assert.equal(r.status,'needs_verification');assert.equal(r.observation?.text,'Submitted');
+});
+
+test('repeated blocking after one fallback yields to controller without another Thinking call',async()=>{
+ const f=fixture(['BLOCKED','BLOCKED','BLOCKED','BLOCKED','BLOCKED','BLOCKED']);let calls=0;
+ f.deps.snapshot=async()=>({mimeType:'image/png',data:'aA=='});
+ f.deps.decideAction=async()=>{calls++;return {action:'WAIT',text:null};};
+ const r=await runBrowserUse({goal:'Continue',scope},f.deps,new AbortController().signal);
+ assert.equal(calls,1);assert.equal(r.reason,'THINKING_WAITING_INPUT');assert.equal(r.status,'blocked');
 });

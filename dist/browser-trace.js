@@ -17,5 +17,7 @@ exports.TraceEvent = zod_1.z.object({
     steps: zod_1.z.number().int().nonnegative().optional(), evaluations: zod_1.z.number().int().nonnegative().optional(),
     staleRetries: zod_1.z.number().int().nonnegative().optional(), consecutiveStale: zod_1.z.number().int().nonnegative().optional(),
     effect: zod_1.z.enum(['value-changed', 'selection-changed', 'expanded-changed']).optional(),
+    pageChanged: zod_1.z.boolean().optional(), valueMatched: zod_1.z.boolean().optional(), optionCount: zod_1.z.number().int().nonnegative().optional(),
+    recoveryCalls: zod_1.z.number().int().nonnegative().optional(), fieldsUpdated: zod_1.z.number().int().nonnegative().optional(),
     effectObserved: zod_1.z.boolean().optional(), verified: zod_1.z.boolean().optional(),
 }).strict();
