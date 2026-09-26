@@ -247,3 +247,13 @@ test('alternating navigation and clicks are detected despite volatile page text'
  const r=await runComputerUse({goal:'Find the requested result'},f.deps,new AbortController().signal);
  assert.equal(r.steps,4);assert.equal(thinking,1);assert.equal(r.reason,'THINKING_WAITING_INPUT');
 });
+test('follow-up Enter uses one key action and shares continuation semantics with both questions',async()=>{
+ const f=fixture(['key:enter','DONE']);const evaluate=f.deps.evaluate;
+ f.deps.evaluate=async(req,s)=>{
+  assert.match(req.questions.action.instructions,/enter เลย means press Enter/);
+  assert.match(req.questions.completion.instructions,/press the requested key once/);
+  return evaluate(req,s);
+ };
+ await runComputerUse({goal:'Current user command: enter เลย. Previous command: open Facebook in a new tab.'},f.deps,new AbortController().signal);
+ const actions=f.calls.filter(x=>x.name==='computer_action');assert.equal(actions.length,1);assert.equal(actions[0].args.kind,'key');assert.equal(actions[0].args.key,'enter');
+});
