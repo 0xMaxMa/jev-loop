@@ -20,6 +20,11 @@ export declare const TraceEvent: z.ZodObject<{
     staleRetries: z.ZodOptional<z.ZodNumber>;
     consecutiveStale: z.ZodOptional<z.ZodNumber>;
     effect: z.ZodOptional<z.ZodEnum<["value-changed", "selection-changed", "expanded-changed"]>>;
+    pageChanged: z.ZodOptional<z.ZodBoolean>;
+    valueMatched: z.ZodOptional<z.ZodBoolean>;
+    optionCount: z.ZodOptional<z.ZodNumber>;
+    recoveryCalls: z.ZodOptional<z.ZodNumber>;
+    fieldsUpdated: z.ZodOptional<z.ZodNumber>;
     effectObserved: z.ZodOptional<z.ZodBoolean>;
     verified: z.ZodOptional<z.ZodBoolean>;
 }, "strict", z.ZodTypeAny, {
@@ -42,6 +47,11 @@ export declare const TraceEvent: z.ZodObject<{
     evaluations?: number | undefined;
     staleRetries?: number | undefined;
     consecutiveStale?: number | undefined;
+    pageChanged?: boolean | undefined;
+    valueMatched?: boolean | undefined;
+    optionCount?: number | undefined;
+    recoveryCalls?: number | undefined;
+    fieldsUpdated?: number | undefined;
     effectObserved?: boolean | undefined;
     verified?: boolean | undefined;
 }, {
@@ -64,6 +74,11 @@ export declare const TraceEvent: z.ZodObject<{
     evaluations?: number | undefined;
     staleRetries?: number | undefined;
     consecutiveStale?: number | undefined;
+    pageChanged?: boolean | undefined;
+    valueMatched?: boolean | undefined;
+    optionCount?: number | undefined;
+    recoveryCalls?: number | undefined;
+    fieldsUpdated?: number | undefined;
     effectObserved?: boolean | undefined;
     verified?: boolean | undefined;
 }>;

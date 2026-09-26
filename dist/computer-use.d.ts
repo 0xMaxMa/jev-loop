@@ -1,6 +1,9 @@
+import type { ActionThinkingRequest, ActionThinkingDecision } from '../action-thinking';
 import { z } from 'zod';
 export declare const COMPUTER_USE_CONTRACT_VERSION = 1;
 export declare const ComputerObservation: z.ZodObject<{
+    decisionMode: z.ZodOptional<z.ZodEnum<["jev", "thinking"]>>;
+    supportedActions: z.ZodOptional<z.ZodArray<z.ZodEnum<["scroll:up", "scroll:down", "navigate:back", "navigate:forward"]>, "many">>;
     screenshotAvailable: z.ZodOptional<z.ZodBoolean>;
     generation: z.ZodString;
     application: z.ZodString;
@@ -89,6 +92,8 @@ export declare const ComputerObservation: z.ZodObject<{
         name: string;
     }[];
     text?: string[] | undefined;
+    decisionMode?: "jev" | "thinking" | undefined;
+    supportedActions?: ("scroll:up" | "scroll:down" | "navigate:back" | "navigate:forward")[] | undefined;
     screenshotAvailable?: boolean | undefined;
     focusedControl?: {
         label: string;
@@ -120,6 +125,8 @@ export declare const ComputerObservation: z.ZodObject<{
         name: string;
     }[];
     text?: string[] | undefined;
+    decisionMode?: "jev" | "thinking" | undefined;
+    supportedActions?: ("scroll:up" | "scroll:down" | "navigate:back" | "navigate:forward")[] | undefined;
     screenshotAvailable?: boolean | undefined;
     focusedControl?: {
         label: string;
@@ -148,7 +155,10 @@ export interface ComputerProgress {
     steps: number;
     evaluations: number;
     phase: 'observing' | 'observed' | 'evaluating' | 'decided' | 'thinking' | 'verifying' | 'acting' | 'acted' | 'waiting' | 'reconciling' | 'terminal';
-    action?: 'open' | 'press' | 'type' | 'key' | 'WAIT' | 'DONE' | 'BLOCKED';
+    application?: string;
+    appId?: string;
+    decisionMode?: 'jev' | 'thinking';
+    action?: 'open' | 'press' | 'type' | 'key' | 'scroll' | 'navigate' | 'WAIT' | 'DONE' | 'BLOCKED';
     key?: string;
     ref?: string;
     role?: string;
@@ -163,6 +173,7 @@ export interface ComputerProgress {
     status?: ComputerUseResult['status'];
 }
 export interface ComputerUseDependencies {
+    decideAction?: (request: ActionThinkingRequest, signal: AbortSignal) => Promise<ActionThinkingDecision>;
     interruptSignal?: AbortSignal;
     call(name: string, args: Record<string, unknown>, signal: AbortSignal): Promise<unknown>;
     evaluate(request: {

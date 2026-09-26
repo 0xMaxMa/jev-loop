@@ -14,6 +14,8 @@ export const TraceEvent=z.object({
   steps:z.number().int().nonnegative().optional(),evaluations:z.number().int().nonnegative().optional(),
   staleRetries:z.number().int().nonnegative().optional(),consecutiveStale:z.number().int().nonnegative().optional(),
   effect:z.enum(['value-changed','selection-changed','expanded-changed']).optional(),
+  pageChanged:z.boolean().optional(),valueMatched:z.boolean().optional(),optionCount:z.number().int().nonnegative().optional(),
+  recoveryCalls:z.number().int().nonnegative().optional(),fieldsUpdated:z.number().int().nonnegative().optional(),
   effectObserved:z.boolean().optional(),verified:z.boolean().optional(),
 }).strict();
 export type BrowserTraceEvent=z.infer<typeof TraceEvent>;
