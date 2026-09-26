@@ -257,3 +257,15 @@ test('follow-up Enter uses one key action and shares continuation semantics with
  await runComputerUse({goal:'Current user command: enter เลย. Previous command: open Facebook in a new tab.'},f.deps,new AbortController().signal);
  const actions=f.calls.filter(x=>x.name==='computer_action');assert.equal(actions.length,1);assert.equal(actions[0].args.kind,'key');assert.equal(actions[0].args.key,'enter');
 });
+test('Thinking-only device mode never evaluates Jev, including subsequent actions',async()=>{
+ const f=fixture([]);Object.assign(f.state,{decisionMode:'thinking'});let decisions=0;
+ f.deps.evaluate=async()=>{throw Error('Jev must not be called');};
+ f.deps.decideAction=async()=>({action:decisions++===0?'type:c1':'DONE',text:decisions===1?'hello':null});
+ const r=await runComputerUse({goal:'Type hello'},f.deps,new AbortController().signal);
+ assert.equal(r.evaluations,0);assert.equal(decisions,2);assert.equal(f.calls.filter(x=>x.name==='computer_action').length,1);
+ assert(r.trace.events.some(e=>e.decisionMode==='thinking'));
+});
+test('Thinking-only without a Thinking provider waits instead of silently using Jev',async()=>{
+ const f=fixture([]);Object.assign(f.state,{decisionMode:'thinking'});f.deps.evaluate=async()=>{throw Error('Jev must not be called');};
+ const r=await runComputerUse({goal:'Type'},f.deps,new AbortController().signal);assert.equal(r.reason,'THINKING_UNAVAILABLE');assert.equal(r.steps,0);
+});

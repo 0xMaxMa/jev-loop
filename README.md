@@ -281,3 +281,10 @@ Jev request. A satisfaction choice yields verification instead of extra
 mutations; contradictory DONE choices reobserve and use bounded Thinking fallback.
 Opening an app does not carry earlier search commands forward. Repeated alternating
 navigation/activation cycles trigger fallback even when volatile page text changes.
+
+Computer observations may include `decisionMode: "thinking"` to bypass Jev for
+all decisions, or `"jev"` for normal Jev/fallback routing (the default). Thinking
+mode uses the same offered actions and execution guards; without a Thinking
+callback it returns `THINKING_UNAVAILABLE`. Progress includes the selected mode,
+and Jev evaluation counts remain zero in Thinking-only mode. A mode change takes
+effect on the next observation, not by replaying or interrupting a dispatched action.

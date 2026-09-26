@@ -2,6 +2,7 @@ import type { ActionThinkingRequest, ActionThinkingDecision } from '../action-th
 import { z } from 'zod';
 export declare const COMPUTER_USE_CONTRACT_VERSION = 1;
 export declare const ComputerObservation: z.ZodObject<{
+    decisionMode: z.ZodOptional<z.ZodEnum<["jev", "thinking"]>>;
     supportedActions: z.ZodOptional<z.ZodArray<z.ZodEnum<["scroll:up", "scroll:down", "navigate:back", "navigate:forward"]>, "many">>;
     screenshotAvailable: z.ZodOptional<z.ZodBoolean>;
     generation: z.ZodString;
@@ -91,6 +92,7 @@ export declare const ComputerObservation: z.ZodObject<{
         name: string;
     }[];
     text?: string[] | undefined;
+    decisionMode?: "jev" | "thinking" | undefined;
     supportedActions?: ("scroll:up" | "scroll:down" | "navigate:back" | "navigate:forward")[] | undefined;
     screenshotAvailable?: boolean | undefined;
     focusedControl?: {
@@ -123,6 +125,7 @@ export declare const ComputerObservation: z.ZodObject<{
         name: string;
     }[];
     text?: string[] | undefined;
+    decisionMode?: "jev" | "thinking" | undefined;
     supportedActions?: ("scroll:up" | "scroll:down" | "navigate:back" | "navigate:forward")[] | undefined;
     screenshotAvailable?: boolean | undefined;
     focusedControl?: {
@@ -154,6 +157,7 @@ export interface ComputerProgress {
     phase: 'observing' | 'observed' | 'evaluating' | 'decided' | 'thinking' | 'verifying' | 'acting' | 'acted' | 'waiting' | 'reconciling' | 'terminal';
     application?: string;
     appId?: string;
+    decisionMode?: 'jev' | 'thinking';
     action?: 'open' | 'press' | 'type' | 'key' | 'scroll' | 'navigate' | 'WAIT' | 'DONE' | 'BLOCKED';
     key?: string;
     ref?: string;
