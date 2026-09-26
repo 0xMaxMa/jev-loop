@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {runComputerUse,type ComputerUseDependencies} from '../logic/computer-use.ts';
+import {runComputerUse,type ComputerUseDependencies} from '../dist/computer-use.js';
 function fixture(plan:string[]){
  let revision={revision:1,goal:'Create a note'},index=0;const calls:any[]=[];
  const state={generation:'g',application:'com.apple.Notes',controls:[{ref:'c1',label:'Note',role:'AXTextArea',actions:['type'],value:''}],apps:[{id:'com.apple.Notes',name:'Notes'}],truncated:false};
