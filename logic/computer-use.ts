@@ -135,7 +135,7 @@ export async function runComputerUse(raw:unknown,deps:ComputerUseDependencies,si
     if(completion){
      const ids=['SATISFIED','REQUIRED_STEP','UNKNOWN'],p=completion.probabilities;
      if(!ids.includes(completion.choice)||Object.keys(p).length!==ids.length||ids.some(k=>!Object.hasOwn(p,k))||Math.abs(Object.values(p).reduce((a,b)=>a+b,0)-1)>.02||p[completion.choice]<Math.max(...Object.values(p))-1e-6)throw Error('INVALID_DECISION');
-     if(completion.choice==='SATISFIED'&&completion.confidence>=.8)return {action:{action:'DONE',generation:state.generation,revision,targets}};
+     if(completion.choice==='SATISFIED')return {action:{action:'DONE',generation:state.generation,revision,targets}};
      if(selected.choice==='DONE'&&completion.choice!=='SATISFIED'){
       prematureDone++;handover.progress(false);emit('waiting',{reason:'COMPLETION_NOT_ESTABLISHED'});
       if(prematureDone>=3&&!handover.available)return {result:result('needs_input','COMMAND_WAITING_INPUT')};

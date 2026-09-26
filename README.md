@@ -277,7 +277,7 @@ continue to work and these actions are not offered. Screenshots do not authorize
 arbitrary coordinate clicks or shell commands.
 
 Computer Use evaluates current-command completion alongside the next action in one
-Jev request. High-confidence satisfaction yields verification instead of extra
+Jev request. A satisfaction choice yields verification instead of extra
 mutations; contradictory DONE choices reobserve and use bounded Thinking fallback.
 Opening an app does not carry earlier search commands forward. Repeated alternating
 navigation/activation cycles trigger fallback even when volatile page text changes.
