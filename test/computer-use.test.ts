@@ -218,3 +218,32 @@ test('app switching hands over after three opens even when every screen changes'
   assert(r.trace.events.some(e=>e.appId==='b'));
  }
 });
+
+function choiceFor(criteria:Record<string,string>,choice:string){return {choice,confidence:1,probabilities:Object.fromEntries(Object.keys(criteria).map(k=>[k,k===choice?1:0]))};}
+test('a satisfied open-only command cannot click a field from an earlier search',async()=>{
+ const f=fixture([]);f.deps.evaluate=async req=>({answers:{action:choiceFor(req.questions.action.criteria,'type:c1'),completion:choiceFor(req.questions.completion.criteria,'SATISFIED')}});
+ const r=await runComputerUse({goal:'Open Notes. Previous reference only: search milk'},f.deps,new AbortController().signal);
+ assert.equal(r.steps,0);assert.equal(r.status,'needs_verification');assert.equal(f.calls.filter(c=>c.name==='computer_action').length,0);
+});
+test('premature DONE while search is incomplete reaches Thinking instead of silently ending',async()=>{
+ const f=fixture([]);let calls=0;
+ f.deps.evaluate=async req=>({answers:{action:choiceFor(req.questions.action.criteria,'DONE'),completion:choiceFor(req.questions.completion.criteria,'REQUIRED_STEP')}});
+ f.deps.decideAction=async()=>{calls++;return {action:null,text:null};};
+ const r=await runComputerUse({goal:'Search milk'},f.deps,new AbortController().signal);
+ assert.equal(calls,1);assert.equal(r.reason,'THINKING_WAITING_INPUT');assert.ok(r.trace.events.some(e=>e.reason==='COMPLETION_NOT_ESTABLISHED'));assert.equal(r.steps,0);
+});
+test('a premature DONE is corrected on the next fresh observation and requested text is typed',async()=>{
+ const f=fixture([]);let decisions=0;
+ f.deps.evaluate=async req=>{const n=decisions++;return {answers:{action:choiceFor(req.questions.action.criteria,n===1?'type:c1':'DONE'),completion:choiceFor(req.questions.completion.criteria,n<2?'REQUIRED_STEP':'SATISFIED')}};};
+ const r=await runComputerUse({goal:'Type milk'},f.deps,new AbortController().signal);assert.equal(r.steps,1);assert.equal(f.calls.find(c=>c.name==='computer_action')?.args.text,'milk');
+});
+
+test('alternating navigation and clicks are detected despite volatile page text',async()=>{
+ const f=fixture([]);let n=0,observed=0,thinking=0;
+ f.state.controls=[{ref:'c1',label:'Back target',role:'AXButton',actions:['press'] as any,value:''}];
+ const call=f.deps.call;f.deps.call=async(name,args,signal)=>name==='computer_observe'?{...f.state,text:['Clock '+observed++],supportedActions:['navigate:back']}:call(name,args,signal);
+ f.deps.evaluate=async req=>({answers:{action:choiceFor(req.questions.action.criteria,n++%2===0?'press:c1':'navigate:back')}});
+ f.deps.decideAction=async()=>{thinking++;return {action:null,text:null};};
+ const r=await runComputerUse({goal:'Find the requested result'},f.deps,new AbortController().signal);
+ assert.equal(r.steps,4);assert.equal(thinking,1);assert.equal(r.reason,'THINKING_WAITING_INPUT');
+});
